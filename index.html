@@ -8,6 +8,7 @@
   <meta name="theme-color" content="#0b2a63">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%230b3a8f'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle'%3E%E2%9A%9B%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/fx.css">
 </head>
 <body>
   <canvas id="wave" aria-hidden="true"></canvas>
@@ -19,6 +20,7 @@
         <div class="seg" role="group" aria-label="Класс">
           <button data-grade="all">7–8</button><button data-grade="7">7</button><button data-grade="8">8</button>
         </div>
+        <button class="iconbtn" id="sndBtn" aria-label="Звук" title="Звуки (выключены)">🔇</button>
         <button class="iconbtn" id="themeBtn" aria-label="Сменить цвет фона" title="Цвет фона">🎨<i></i></button>
         <div class="sys" title="Время · заряд = доля освоенных формул">
           <span id="clock">--:--</span>
@@ -30,6 +32,7 @@
       <a class="xcat" href="#/" data-nav=""><span class="xi">🏠</span><span class="xl">Главная</span></a>
       <a class="xcat" href="#/learn" data-nav="learn"><span class="xi">🎓</span><span class="xl">Учить</span></a>
       <a class="xcat" href="#/train" data-nav="train"><span class="xi">🎮</span><span class="xl">Тренажёр</span></a>
+      <a class="xcat" href="#/lab" data-nav="lab"><span class="xi">🧪</span><span class="xl">Опыты</span></a>
       <a class="xcat" href="#/tech" data-nav="tech"><span class="xi">💡</span><span class="xl">Техники</span></a>
       <a class="xcat" href="#/progress" data-nav="progress"><span class="xi">🏆</span><span class="xl">Прогресс</span></a>
     </nav>
@@ -47,6 +50,8 @@
   <script src="js/core-data.js"></script>
   <script src="js/formulas7.js"></script>
   <script src="js/formulas8.js"></script>
+  <script src="js/fx.js"></script>
+  <script src="js/lab.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

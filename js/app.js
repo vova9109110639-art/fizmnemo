@@ -4,6 +4,7 @@
   const D = window.FM, FS = D.formulas, TS = D.topics, FACTS = D.facts;
   const { pick, R } = D;
   const app = document.getElementById('app');
+  const FX = window.FX || new Proxy({ last: { x: 200, y: 200 }, soundOn: () => false, runCounters() {}, boot() {} }, { get: (t, k) => (k in t ? t[k] : () => {}) });
 
   /* ============ утилиты ============ */
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -14,6 +15,8 @@
   const factById = Object.fromEntries(FACTS.map((f) => [f.id, f]));
   const topicById = Object.fromEntries(TS.map((t) => [t.id, t]));
   const topicOf = (f) => topicById[f.topic];
+  const SEG = window.Intl && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+  const gx = (str, k) => { str = str || ''; return SEG ? [...SEG.segment(str)].slice(0, k).map((x) => x.segment).join('') : [...str].slice(0, k).join(''); };
 
   /* ---------- математика: мини-язык → HTML ---------- */
   function M(src) {
@@ -127,6 +130,8 @@
   };
   let prog = store.get('prog', {});
   let meta = store.get('meta', { xp: 0, days: {} });
+  function normMeta() { meta.xp = meta.xp || 0; meta.days = meta.days || {}; meta.ach = meta.ach || {}; meta.labs = meta.labs || {}; meta.blitz = meta.blitz || 0; }
+  normMeta();
   let mine = store.get('mine', {});
   let grade = store.get('grade', 'all');
   let xcolor = store.get('xcolor', 'auto');
@@ -144,7 +149,50 @@
     meta.days[today()] = (meta.days[today()] || 0) + 1;
     saveAll();
   }
-  function addXp(n) { meta.xp = (meta.xp || 0) + n; saveAll(); }
+  function addXp(n) {
+    const before = rank().r[0]; meta.xp = (meta.xp || 0) + n; saveAll();
+    const after = rank().r;
+    if (after[0] !== before) setTimeout(() => levelUp(after), 500);
+    if (meta.xp >= 100) unlock('xp100');
+    if (meta.xp >= 500) unlock('xp500');
+  }
+  /* ---------- достижения ---------- */
+  const ACH = [
+    { id: 'first', icon: '🌟', name: 'Первый шаг', desc: 'Дай первый верный ответ' },
+    { id: 'combo5', icon: '🔥', name: 'Разогрев', desc: '5 верных подряд без подсказок' },
+    { id: 'combo10', icon: '☄️', name: 'Метеор', desc: '10 верных подряд' },
+    { id: 'perfect', icon: '💯', name: 'Без ошибок', desc: '100% в тренировке из 8+ заданий' },
+    { id: 'streak3', icon: '📅', name: 'Привычка', desc: 'Занимайся 3 дня подряд' },
+    { id: 'streak7', icon: '🗓️', name: 'Неделя силы', desc: 'Занимайся 7 дней подряд' },
+    { id: 'topic', icon: '🎖️', name: 'Тема покорена', desc: 'Освой все формулы одной темы' },
+    { id: 'half', icon: '🧭', name: 'На полпути', desc: 'Освой половину всех формул' },
+    { id: 'xp100', icon: '⚡', name: 'Заряжен', desc: 'Набери 100 XP' },
+    { id: 'xp500', icon: '🚀', name: 'Ускорение', desc: 'Набери 500 XP' },
+    { id: 'mine', icon: '✍️', name: 'Автор мнемоники', desc: 'Придумай свою мнемонику' },
+    { id: 'lab3', icon: '🧪', name: 'Юный экспериментатор', desc: 'Открой 3 опыта в лаборатории' },
+    { id: 'blitz15', icon: '⏱️', name: 'Блицкриг', desc: '15 верных за минуту в «Блице»' }
+  ];
+  let achQ = 0;
+  function bigToast(icon, title, sub) {
+    const t = document.createElement('div'); t.className = 'achtoast';
+    t.innerHTML = '<span class="at-i">' + icon + '</span><div><b>' + esc(title) + '</b><small>' + esc(sub) + '</small></div>';
+    document.body.appendChild(t); setTimeout(() => t.classList.add('out'), 3100); setTimeout(() => t.remove(), 3700);
+  }
+  function unlock(id) {
+    if (meta.ach[id]) return;
+    const a = ACH.find((x) => x.id === id); if (!a) return;
+    meta.ach[id] = Date.now(); saveAll();
+    const delay = achQ; achQ += 1800;
+    setTimeout(() => { achQ = Math.max(0, achQ - 1800); bigToast(a.icon, 'Достижение: ' + a.name, a.desc); FX.sfx('level'); FX.burst(innerWidth / 2, 110, 34); }, delay + 450);
+  }
+  function levelUp(r) { bigToast(r[2], 'Новый ранг: ' + r[1], 'Так держать!'); FX.sfx('level'); FX.rain(90); }
+  function checkProgressAch() {
+    if (streak() >= 3) unlock('streak3');
+    if (streak() >= 7) unlock('streak7');
+    const got = FS.filter((f) => mastered(f.id)).length;
+    if (got > 0 && got >= FS.length / 2) unlock('half');
+    if (TS.some((t) => { const fs = FS.filter((f) => f.topic === t.id); return fs.length && fs.every((f) => mastered(f.id)); })) unlock('topic');
+  }
   const RANKS = [[0, 'Новичок', '🌱'], [100, 'Лаборант', '🧪'], [300, 'Исследователь', '🔭'], [700, 'Физик', '⚛️'], [1500, 'Мастер мнемоники', '🧠']];
   function rank() { let r = RANKS[0], nxt = null; for (let i = 0; i < RANKS.length; i++) { if ((meta.xp || 0) >= RANKS[i][0]) { r = RANKS[i]; nxt = RANKS[i + 1] || null; } } return { r, nxt }; }
   function streak() {
@@ -185,7 +233,7 @@
   }
   const ring = (pct, size, label) => {
     const r = 42, c = 2 * Math.PI * r, o = c * (1 - Math.min(1, pct));
-    return '<div class="ring" style="width:' + size + 'px;height:' + size + 'px"><svg viewBox="0 0 100 100"><circle class="rb" cx="50" cy="50" r="' + r + '"/><circle class="rf" cx="50" cy="50" r="' + r + '" stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + o.toFixed(1) + '"/></svg><b>' + label + '</b></div>';
+    return '<div class="ring" style="width:' + size + 'px;height:' + size + 'px"><svg viewBox="0 0 100 100"><circle class="rb" cx="50" cy="50" r="' + r + '"/><circle class="rf" cx="50" cy="50" r="' + r + '" stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + c.toFixed(1) + '" data-o="' + o.toFixed(1) + '"/></svg><b>' + label + '</b></div>';
   };
   const topicPct = (tid) => { const fs = FS.filter((f) => f.topic === tid); if (!fs.length) return 0; return fs.reduce((a, f) => a + (prog[f.id] ? prog[f.id].b / 5 : 0), 0) / fs.length; };
   const topicColor = (t) => 'style="--tc:' + t.color + '"';
@@ -204,9 +252,9 @@
     const t = topicOf(f), m = f.m || {}, mn = mine[f.id] || '';
     const forms = f.forms ? Object.values(f.forms).filter((s) => s !== f.f) : [];
     const vars = f.vars && f.vars.length ? '<table class="vars"><tbody>' + f.vars.map((v) => '<tr><td class="vs">' + math(v[0]) + '</td><td>' + esc(v[1]) + (v[3] ? ' <small>(задана)</small>' : '') + '</td><td class="vu">' + (v[2] ? esc(v[2]) : '—') + '</td></tr>').join('') + '</tbody></table>' : '';
-    const p = prog[f.id];
+    const p = prog[f.id], sim = window.LAB && LAB.sims.find((x) => x.fid === f.id);
     return '<article class="fcard" id="c-' + esc(f.id) + '" ' + topicColor(t) + '>' +
-      '<header class="fc-head"><div class="fc-img" aria-hidden="true">' + (m.img || t.icon) + '</div><div><div class="chips"><span class="chip">' + f.grade + ' класс</span><a class="chip link" href="#/learn/' + t.id + '">' + t.icon + ' ' + esc(t.name) + '</a>' +
+      '<header class="fc-head"><div class="fc-img" data-act="poke" title="Нажми!">' + (m.img || t.icon) + '</div><div><div class="chips"><span class="chip">' + f.grade + ' класс</span><a class="chip link" href="#/learn/' + t.id + '">' + t.icon + ' ' + esc(t.name) + '</a>' +
       (p && p.b >= 4 ? '<span class="chip ok">✓ освоено</span>' : '') + '</div><h3>' + esc(f.name) + '</h3></div></header>' +
       (f.f ? '<div class="fbox" data-box><div class="fbox-in">' + math(f.f, 'big') + '</div><button class="ghost sm" data-act="cover">🙈 Закрой и вспомни</button></div>' : '') +
       (f.ruleText ? '<div class="rule">' + txt(f.ruleText) + '</div>' : '') +
@@ -216,7 +264,7 @@
       (m.story ? '<p class="story"><b>📖 Образ-история.</b> ' + txt(m.story) + '</p>' : '') +
       (m.trap ? '<p class="trap"><b>⚠️ Ловушка.</b> ' + txt(m.trap) + '</p>' : '') +
       '<div class="mine"><label for="mine-' + esc(f.id) + '">✍️ Моя мнемоника <small>(свои ассоциации запоминаются лучше всего)</small></label><textarea id="mine-' + esc(f.id) + '" data-mine="' + esc(f.id) + '" rows="2" placeholder="Придумай свой образ, фразу или рифму…">' + esc(mn) + '</textarea></div>' +
-      '<footer class="fc-foot"><a class="btn sm" href="#/play/mix?ids=' + esc(f.id) + '&n=6">🎲 Потренировать</a><a class="btn ghost sm" href="#/play/recall?ids=' + esc(f.id) + '">🃏 Карточка</a></footer></article>';
+      '<footer class="fc-foot"><a class="btn sm" href="#/play/mix?ids=' + esc(f.id) + '&n=6">🎲 Потренировать</a><a class="btn ghost sm" href="#/play/recall?ids=' + esc(f.id) + '">🃏 Карточка</a>' + (sim ? '<a class="btn ghost sm" href="#/lab/' + sim.id + '">🧪 Опыт</a>' : '') + '</footer></article>';
   }
   function factsHTML(tid) {
     const fs = FACTS.filter((x) => x.topic === tid);
@@ -230,6 +278,10 @@
     const due = dueList().length, rk = rank(), st = streak();
     const dayF = (() => { const arr = fs.length ? fs : FS; let h = 0; for (const c of today()) h = (h * 31 + c.charCodeAt(0)) >>> 0; return arr[h % arr.length]; })();
     const dm = dayF.m || {};
+    const rotIds = ['speed', 'pressure', 'archimedes', 'ohm', 'lens'].filter((id) => byId[id]);
+    const rot = rotIds.map((id, i) => { const f = byId[id], l = f.m.lines[0].x.split(/[.:]/)[0].slice(0, 64); return '<span class="rot-i" style="--i:' + i + ';--n:' + rotIds.length + '">' + math(f.f) + '<b>' + gx(f.m.img, 2) + '</b><i>' + esc(l) + '</i></span>'; }).join('');
+    const tkItems = shuffle(visFormulas().filter((f) => f.f && f.m)).slice(0, 16).map((f) => '<span class="tk"><b>' + gx(f.m.img, 2) + '</b>' + math(f.f) + '</span>').join('');
+    const labPromo = (window.LAB ? LAB.sims.slice(0, 4) : []).map((sm) => '<a class="labcard" href="#/lab/' + sm.id + '"><span class="li">' + sm.icon + '</span><b>' + esc(sm.name) + '</b><span class="lf">' + math(byId[sm.fid].f) + '</span><small>Попробовать →</small></a>').join('');
     const lesson = TS.filter(gradeOk).map((t) => {
       const n = FS.filter((f) => f.topic === t.id).length;
       return '<a class="tcard" href="#/learn/' + t.id + '" ' + topicColor(t) + '><span class="ti">' + t.icon + '</span><div><b>' + esc(t.name) + '</b><small>' + esc(t.place) + ' · ' + n + ' карточ.</small></div><div class="pbar"><i style="width:' + Math.round(topicPct(t.id) * 100) + '%"></i></div></a>';
@@ -237,19 +289,23 @@
     app.innerHTML =
       '<section class="hero"><div class="hero-copy"><span class="pill">⚛️ Физика 7–8 класс</span><h1>Формулы, которые <em>запоминаются сами</em></h1>' +
       '<p>Образы, смешные фразы, треугольники и «дворец памяти». Выучи формулу за минуту, а потом закрепи тренажёрами с интервальным повторением.</p>' +
-      '<div class="cta"><a class="btn big" href="#/play/mix">🚀 Начать тренировку</a><a class="btn ghost big" href="#/learn">📚 Учить по темам</a></div></div>' +
+      '<div class="rotator" aria-hidden="true">' + rot + '</div>' +
+      '<div class="cta"><a class="btn big" href="#/play/mix">🚀 Начать тренировку</a><a class="btn ghost big" href="#/lab">🧪 Опыты</a></div></div>' +
       '<div class="daily" ' + topicColor(topicOf(dayF)) + '><span class="pill">✨ Формула дня</span><div class="daily-img">' + (dm.img || '⚛️') + '</div><h3>' + esc(dayF.name) + '</h3>' +
       (dayF.f ? '<div class="fbox-in">' + math(dayF.f, 'big') + '</div>' : '<p class="muted">' + txt(dayF.ruleText || '') + '</p>') +
       '<p class="daily-l">' + (dm.lines && dm.lines[0] ? txt(dm.lines[0].x) : '') + '</p><a class="btn sm" href="#/card/' + esc(dayF.id) + '">Открыть карточку →</a></div></section>' +
-      '<section class="bento"><div class="b b-ring">' + ring(total ? got / total : 0, 96, got + '/' + total) + '<div><b>Освоено формул</b><small>из ' + total + ' в выбранном классе</small></div></div>' +
-      '<div class="b"><span class="big-n">🔥 ' + st + '</span><b>Дней подряд</b><small>' + (st ? 'так держать!' : 'позанимайся сегодня') + '</small></div>' +
-      '<div class="b"><span class="big-n">' + rk.r[2] + ' ' + (meta.xp || 0) + '</span><b>' + rk.r[1] + '</b><small>' + (rk.nxt ? 'до «' + rk.nxt[1] + '» ещё ' + (rk.nxt[0] - (meta.xp || 0)) + ' XP' : 'максимальный ранг!') + '</small></div>' +
-      '<a class="b b-due" href="#/play/recall?due=1"><span class="big-n">⏰ ' + due + '</span><b>К повторению</b><small>' + (due ? 'нажми — повторим сейчас' : 'пока всё свежее') + '</small></a></section>' +
+      '<div class="ticker" aria-hidden="true"><div class="tk-track">' + tkItems + tkItems + '</div></div>' +
+      '<section class="bento"><div class="b b-ring">' + ring(total ? got / total : 0, 96, '<span data-count="' + got + '">' + got + '</span>/' + total) + '<div><b>Освоено формул</b><small>из ' + total + ' в выбранном классе</small></div></div>' +
+      '<div class="b"><span class="big-n">🔥 <span data-count="' + st + '">' + st + '</span></span><b>Дней подряд</b><small>' + (st ? 'так держать!' : 'позанимайся сегодня') + '</small></div>' +
+      '<div class="b"><span class="big-n">' + rk.r[2] + ' <span data-count="' + (meta.xp || 0) + '">' + (meta.xp || 0) + '</span></span><b>' + rk.r[1] + '</b><small>' + (rk.nxt ? 'до «' + rk.nxt[1] + '» ещё ' + (rk.nxt[0] - (meta.xp || 0)) + ' XP' : 'максимальный ранг!') + '</small></div>' +
+      '<a class="b b-due" href="#/play/recall?due=1"><span class="big-n">⏰ <span data-count="' + due + '">' + due + '</span></span><b>К повторению</b><small>' + (due ? 'нажми — повторим сейчас' : 'пока всё свежее') + '</small></a>' +
+      '<a class="b" href="#/play/blitz"><span class="big-n">⚡ ' + (meta.blitz || 0) + '</span><b>Рекорд «Блица»</b><small>верных за 60 секунд</small></a></section>' +
       '<section><div class="sec-head"><h2>Темы</h2><a href="#/learn">все →</a></div><div class="tgrid">' + lesson + '</div></section>' +
+      (labPromo ? '<section><div class="sec-head"><h2>🧪 Лаборатория</h2><a href="#/lab">все опыты →</a></div><div class="labgrid">' + labPromo + '</div></section>' : '') +
       '<section class="steps"><h2>Как это работает</h2><div class="sgrid">' +
       '<div class="step"><span>1</span><h4>Увидь образ</h4><p>Каждой формуле — своя картинка, фраза или треугольник. Не зубрим — «рисуем» в голове.</p></div>' +
       '<div class="step"><span>2</span><h4>Закрой и вспомни</h4><p>Скрой формулу и восстанови по подсказке. Так формируется настоящая память.</p></div>' +
-      '<div class="step"><span>3</span><h4>Тренируйся</h4><p>10 режимов: от «собери формулу» до задач. Сайт сам вернёт тебя к слабым местам.</p></div></div>' +
+      '<div class="step"><span>3</span><h4>Тренируйся</h4><p>12 режимов: от «собери формулу» до «Блица» на время. Сайт сам вернёт тебя к слабым местам.</p></div></div>' +
       '<a class="btn ghost" href="#/tech">Все техники мнемоники и «дворец памяти» →</a></section>';
   }
 
@@ -268,6 +324,7 @@
     const fs = FS.filter((f) => f.topic === tid);
     const idx = TS.findIndex((x) => x.id === tid), prev = TS[idx - 1], next = TS[idx + 1];
     app.innerHTML = '<div class="topic-head" ' + topicColor(t) + '><a class="back" href="#/learn">← Все темы</a><div class="th-main"><span class="th-ico">' + t.icon + '</span><div><span class="pill">' + t.grade + ' класс · станция «Дворца памяти»</span><h1>' + esc(t.name) + '</h1><p class="place">🏛️ ' + esc(t.place) + '</p></div></div>' +
+      '<div class="chainrow" aria-label="Маршрут образов">' + fs.map((f, i) => '<button class="cnode" style="--i:' + i + '" data-act="goto" data-id="' + esc(f.id) + '" title="' + esc(f.name) + '"><span>' + gx((f.m && f.m.img) || t.icon, 2) + '</span><small>' + esc(f.name.split(' ').slice(0, 2).join(' ')) + '</small></button>').join('') + '</div>' +
       '<div class="storybox"><b>🔗 Сюжет-цепочка</b><p>' + txt(t.story) + '</p></div><div class="cta"><a class="btn" href="#/play/mix?topic=' + t.id + '">🎲 Тренировать тему</a><a class="btn ghost" href="#/play/recall?topic=' + t.id + '">🃏 Карточки</a></div></div>' +
       '<div class="cards">' + fs.map(cardHTML).join('') + '</div>' + factsHTML(tid) +
       '<nav class="pager">' + (prev ? '<a href="#/learn/' + prev.id + '">← ' + prev.icon + ' ' + esc(prev.name) + '</a>' : '<span></span>') + (next ? '<a href="#/learn/' + next.id + '">' + next.icon + ' ' + esc(next.name) + ' →</a>' : '<span></span>') + '</nav>';
@@ -289,7 +346,8 @@
     { id: 'rule', icon: '📜', name: 'Правила и законы', desc: 'Руки, линзы, соединения, плавание.' },
     { id: 'fact', icon: '🔢', name: 'Числа и константы', desc: 'Плотности, теплоёмкости, топливо…' },
     { id: 'conv', icon: '↔️', name: 'Перевод единиц', desc: 'км/ч ↔ м/с, см² ↔ м², приставки.' },
-    { id: 'mix', icon: '🎲', name: 'Микс', desc: 'Всё вперемешку — как на контрольной.' }
+    { id: 'mix', icon: '🎲', name: 'Микс', desc: 'Всё вперемешку — как на контрольной.' },
+    { id: 'blitz', icon: '⚡', name: 'Блиц · 60 секунд', desc: 'Сколько верных ответов успеешь за минуту?' }
   ];
   const modeName = (id) => (MODES.find((m) => m.id === id) || {}).name || id;
 
@@ -429,13 +487,34 @@
       if (params.ids) facts.forEach((x) => items.push(makeFact(x)));
       items.length = Math.min(items.length, n + 2);
     }
+    else if (mode === 'blitz') {
+      const types = ['pick', 'tri', 'mnemo', 'sym', 'rule'], sorted = pool.slice().sort((a, b) => prio(a) - prio(b));
+      let k = 0, guard = 0;
+      while (items.length < 90 && sorted.length && guard++ < 500) {
+        const f = sorted[k++ % sorted.length], opts = types.filter((t) => capable[t](f)); if (!opts.length) continue;
+        const last = items.length ? items[items.length - 1].type : '', ch = opts.filter((o) => o !== last);
+        items.push(makers[pick(ch.length ? ch : opts)](f));
+        if (items.length % 4 === 0 && facts.length) items.push(makeFact(pick(facts)));
+      }
+    }
     else {
       const ok = pool.filter(capable[mode]).sort((a, b) => prio(a) - prio(b));
       let k = 0; while (items.length < n && ok.length) { items.push(makers[mode](ok[k % ok.length])); k++; if (k >= n) break; }
     }
-    return { mode, params, items, i: 0, ok: 0, xp: 0, wrong: [], hinted: 0, answered: false, t0: Date.now() };
+    return { mode, params, items, i: 0, ok: 0, xp: 0, wrong: [], hinted: 0, answered: false, t0: Date.now(), combo: 0, maxCombo: 0, timeLimit: mode === 'blitz' ? 60 : 0 };
+  }
+  let blitzTimer = 0;
+  function stopTimer() { clearInterval(blitzTimer); blitzTimer = 0; }
+  function blitzTick() {
+    if (!sess || !sess.deadline) return stopTimer();
+    const left = Math.max(0, (sess.deadline - Date.now()) / 1000), tm = document.getElementById('tm'), bar = document.getElementById('tmbar');
+    if (tm) tm.textContent = '⏱ ' + Math.ceil(left);
+    if (bar) { bar.style.width = (left / sess.timeLimit) * 100 + '%'; bar.parentNode.classList.toggle('low', left <= 10); }
+    const sec = Math.ceil(left); if (left <= 10 && sec !== sess.lastSec) { sess.lastSec = sec; FX.sfx('tick'); }
+    if (left <= 0) { stopTimer(); renderResult(); }
   }
   function startSession(mode, params) {
+    stopTimer();
     const s = buildSession(mode, params || {});
     if (!s.items.length) { toast('Для этого режима пока нет подходящих заданий'); return false; }
     sess = s; return true;
@@ -499,7 +578,7 @@
       return '<span class="rate-l">Как вспомнилось?</span><button class="rate bad" data-act="rate" data-r="-1">😵 Забыл</button><button class="rate mid" data-act="rate" data-r="0">🤔 Почти</button><button class="rate good" data-act="rate" data-r="1">😎 Помню</button>';
     }
     if (q.answered) return '<button class="btn js-primary" data-act="next">' + (s.i + 1 >= s.items.length ? 'Результаты →' : 'Дальше →') + '</button>';
-    const hintBtn = q.hint && !q.hintShown ? '<button class="ghost" data-act="hint">💡 Мнемоника-подсказка</button>' : '';
+    const hintBtn = q.hint && !q.hintShown && !s.timeLimit ? '<button class="ghost" data-act="hint">💡 Мнемоника-подсказка</button>' : '';
     if (q.type === 'build') return hintBtn + '<button class="btn js-primary" data-act="check-build"' + (q.built.length ? '' : ' disabled') + '>Проверить</button>';
     if (q.type === 'calc' || q.type === 'conv') return hintBtn + '<button class="btn js-primary" data-act="check-num">Проверить</button>';
     return hintBtn;
@@ -509,8 +588,14 @@
     const chipT = t ? '<span class="chip">' + t.icon + ' ' + esc(t.name) + '</span>' : (f && f.topic ? '' : '');
     const modeChip = '<span class="chip soft">' + (MODES.find((m) => m.id === (q.type === 'prefix' ? 'conv' : q.type)) || { icon: '🎲' }).icon + ' ' + modeName(q.type === 'prefix' ? 'conv' : q.type) + '</span>';
     const title = q.type === 'recall' ? 'Вспомни и проверь себя' : q.title;
-    app.innerHTML = '<section class="play"><div class="play-top"><a class="back" href="#/train" data-act="quit">✕</a><div class="bar"><i style="width:' + Math.round((sess.i / n) * 100) + '%"></i></div><span class="cnt">' + (sess.i + 1) + '/' + n + '</span></div>' +
-      '<div class="qcard" ' + (t ? topicColor(t) : '') + ' data-type="' + q.type + '"><div class="q-meta">' + modeChip + chipT + '</div>' +
+    const still = !!q.shown; q.shown = true;
+    if (sess.timeLimit && !sess.deadline) { sess.deadline = Date.now() + sess.timeLimit * 1000; blitzTimer = setInterval(blitzTick, 200); }
+    const comboH = sess.combo >= 2 ? '<span class="combo" id="combo"><b>🔥</b>×' + sess.combo + '</span>' : '<span class="combo off" id="combo"></span>';
+    const topH = sess.timeLimit
+      ? '<div class="bar blitz"><i id="tmbar" style="width:' + Math.max(0, ((sess.deadline - Date.now()) / 1000 / sess.timeLimit) * 100) + '%"></i></div><span class="cnt" id="tm">⏱ ' + Math.max(0, Math.ceil((sess.deadline - Date.now()) / 1000)) + '</span><span class="score">✔ ' + sess.ok + '</span>'
+      : '<div class="bar"><i style="width:' + Math.round((sess.i / n) * 100) + '%"></i></div><span class="cnt">' + (sess.i + 1) + '/' + n + '</span>';
+    app.innerHTML = '<section class="play"><div class="play-top"><a class="back" href="#/train" data-act="quit">✕</a>' + topH + comboH + '</div>' +
+      '<div class="qcard' + (still ? ' still' : '') + '" ' + (t ? topicColor(t) : '') + ' data-type="' + q.type + '"><div class="q-meta">' + modeChip + chipT + '</div>' +
       '<h2 class="q-title">' + (q.type === 'sym' ? esc(title) : q.type === 'rule' ? txt(title) : esc(title)) + '</h2>' + (q.sub && q.type !== 'recall' ? '<p class="q-sub">' + esc(q.sub) + '</p>' : '') +
       '<div class="q-body">' + bodyHTML(q) + '</div>' +
       '<div class="hintbox" id="hintbox">' + (q.hintShown ? q.hint : '') + '</div><div class="fb" id="fb"></div>' +
@@ -524,14 +609,29 @@
     q.answered = true; q.good = good;
     const res = good ? (hinted ? 0 : 1) : -1;
     if (q.fid) record(q.fid, res); else { meta.days[today()] = (meta.days[today()] || 0) + 1; saveAll(); }
-    const xp = good ? (hinted ? 5 : 10) : 0; if (good) sess.ok++; else if (q.fid) sess.wrong.push(q.fid);
+    if (good && !hinted) { sess.combo++; sess.maxCombo = Math.max(sess.maxCombo, sess.combo); } else if (!good) sess.combo = 0;
+    const cb = good && !hinted && sess.combo >= 3 ? Math.min(sess.combo - 2, 5) * 2 : 0;
+    const xp = good ? (hinted ? 5 : 10) + cb : 0; if (good) sess.ok++; else if (q.fid) sess.wrong.push(q.fid);
     if (hinted) sess.hinted++;
     sess.xp += xp; addXp(xp);
     const { f } = qMeta(q); const m = f && f.m && f.m.lines && f.m.lines[0];
     const reminder = !good && f && f.m ? '<div class="remind"><b>🧠 Запомни образ:</b> <span class="h-img">' + (f.m.img || '') + '</span> ' + (m ? txt(m.x) : '') + '</div>' : '';
-    q.fbHTML = '<div class="fb-h">' + (good ? '✅ Верно!' + (xp ? ' <span class="xp">+' + xp + ' XP</span>' : '') : '❌ Не совсем') + '</div>' + (fbBody || '') + reminder;
+    q.fbHTML = '<div class="fb-h">' + (good ? '✅ Верно!' + (xp ? ' <span class="xp">+' + xp + ' XP</span>' : '') + (cb ? ' <span class="xp hot">🔥 комбо ×' + sess.combo + '</span>' : '') : '❌ Не совсем') + '</div>' + (fbBody || '') + reminder;
     q.hintShown = q.hintShown || false;
-    renderQ();
+    renderQ(); afterAnswer(q, good, xp);
+  }
+  function afterAnswer(q, good, xp) {
+    const qc = document.querySelector('.qcard'); if (qc) qc.classList.add(good ? 'win' : 'hit');
+    const el = document.querySelector('.opt.ok') || document.querySelector('.ans-row') || document.querySelector('.q-actions'), r = el && el.getBoundingClientRect();
+    const x = r ? r.left + r.width / 2 : FX.last.x, y = r ? r.top + r.height / 2 : FX.last.y;
+    if (good) {
+      FX.sfx('ok'); FX.burst(x, y, 16 + Math.min(sess.combo, 6) * 4); FX.float('+' + xp + ' XP', x, y - 18, 'xp');
+      if (sess.combo >= 3) { FX.sfx('combo', sess.combo); FX.float('КОМБО ×' + sess.combo + '!', innerWidth / 2, 150, 'combo'); }
+      const cm = document.getElementById('combo'); if (cm && sess.combo >= 2) { cm.classList.remove('bump'); void cm.offsetWidth; cm.classList.add('bump'); }
+      unlock('first'); if (sess.combo >= 5) unlock('combo5'); if (sess.combo >= 10) unlock('combo10');
+    } else FX.sfx('no');
+    checkProgressAch();
+    if (sess.mode === 'blitz') { const s0 = sess, q0 = q; setTimeout(() => { if (sess === s0 && cur() === q0) next(); }, good ? 650 : 1500); }
   }
   function answerChoice(i) {
     const q = cur(); if (q.answered) return;
@@ -568,11 +668,12 @@
   function rate(r) {
     const q = cur(); if (q.rated) return;
     q.rated = true; q.answered = true; q.good = r > 0;
-    const hinted = q.step < 3 && false;
     record(q.fid, r);
-    const xp = r > 0 ? (q.usedHints ? 5 : 8) : r === 0 ? 3 : 1;
+    if (r > 0 && !q.usedHints) { sess.combo++; sess.maxCombo = Math.max(sess.maxCombo, sess.combo); } else if (r < 0) sess.combo = 0;
+    const cb = r > 0 && !q.usedHints && sess.combo >= 3 ? Math.min(sess.combo - 2, 5) * 2 : 0;
+    const xp = (r > 0 ? (q.usedHints ? 5 : 8) : r === 0 ? 3 : 1) + cb;
     sess.xp += xp; addXp(xp); if (r > 0) sess.ok++; else if (r < 0) sess.wrong.push(q.fid);
-    renderQ(); toast('+' + xp + ' XP');
+    renderQ(); afterAnswer(q, r > 0, xp);
   }
   function next() {
     if (!sess) return;
@@ -581,16 +682,32 @@
     renderQ(); window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function renderResult() {
-    const n = sess.items.length, pct = Math.round((sess.ok / n) * 100), bonus = pct >= 80 ? 20 : 0;
+    stopTimer();
+    if (!sess) return;
+    const blitz = sess.mode === 'blitz';
+    const answered = blitz ? Math.max(1, sess.i + (cur() && cur().answered ? 1 : 0)) : sess.items.length;
+    const n = answered, pct = Math.round((sess.ok / n) * 100), bonus = !blitz && pct >= 80 ? 20 : 0;
     if (bonus) { addXp(bonus); sess.xp += bonus; }
     const w = uniq(sess.wrong);
-    const emoji = pct === 100 ? '🏆' : pct >= 80 ? '🎉' : pct >= 50 ? '👍' : '💪';
-    const msg = pct === 100 ? 'Идеально! Мнемоника работает.' : pct >= 80 ? 'Отлично! Ещё чуть-чуть до мастера.' : pct >= 50 ? 'Хорошо. Загляни в карточки ошибок.' : 'Это нормально — повтори образы и попробуй снова.';
-    app.innerHTML = '<section class="result"><div class="r-emoji">' + emoji + '</div><h1>' + msg + '</h1>' + ring(sess.ok / n, 140, pct + '%') +
-      '<p class="muted">' + sess.ok + ' из ' + n + ' верно · подсказок: ' + sess.hinted + ' · <b>+' + sess.xp + ' XP</b>' + (bonus ? ' (бонус +20 за точность!)' : '') + '</p>' +
+    const stars = blitz ? (sess.ok >= 20 ? 3 : sess.ok >= 12 ? 2 : sess.ok >= 5 ? 1 : 0) : (pct === 100 ? 3 : pct >= 80 ? 2 : pct >= 50 ? 1 : 0);
+    const emoji = stars === 3 ? '🏆' : stars === 2 ? '🎉' : stars === 1 ? '👍' : '💪';
+    let newBest = false;
+    if (blitz && sess.ok > (meta.blitz || 0)) { meta.blitz = sess.ok; newBest = true; saveAll(); }
+    const msg = blitz ? (newBest ? 'Новый рекорд!' : 'Время вышло!') : (pct === 100 ? 'Идеально! Мнемоника работает.' : pct >= 80 ? 'Отлично! Ещё чуть-чуть до мастера.' : pct >= 50 ? 'Хорошо. Загляни в карточки ошибок.' : 'Это нормально — повтори образы и попробуй снова.');
+    if (!blitz && pct === 100 && n >= 8) unlock('perfect');
+    if (blitz && sess.ok >= 15) unlock('blitz15');
+    if (sess.maxCombo >= 5) unlock('combo5'); if (sess.maxCombo >= 10) unlock('combo10');
+    checkProgressAch();
+    const starsH = '<div class="stars">' + [0, 1, 2].map((i) => '<span class="star' + (i < stars ? ' on' : '') + '" style="--i:' + i + '">★</span>').join('') + '</div>';
+    const info = blitz ? '<span data-count="' + sess.ok + '">' + sess.ok + '</span> верных за минуту' + (meta.blitz ? ' · рекорд ' + meta.blitz : '') : '<span data-count="' + sess.ok + '">' + sess.ok + '</span> из ' + n + ' верно · подсказок: ' + sess.hinted;
+    app.innerHTML = '<section class="result"><div class="r-emoji">' + emoji + '</div><h1>' + msg + '</h1>' + starsH + ring(sess.ok / n, 140, pct + '%') +
+      '<p class="muted">' + info + ' · максимум комбо: ×' + sess.maxCombo + ' · <b>+<span data-count="' + sess.xp + '">' + sess.xp + '</span> XP</b>' + (bonus ? ' (бонус +20 за точность!)' : '') + '</p>' +
       (w.length ? '<div class="wrongs"><h3>Над чем поработать</h3>' + w.map((id) => { const f = byId[id] || factById[id]; const mm = f.m; return '<a class="wrong" href="#/' + (byId[id] ? 'card/' + id : 'learn/' + f.topic) + '"><span>' + ((mm && mm.img) || '🔢') + '</span><b>' + esc(f.name || f.q) + '</b></a>'; }).join('') + '</div>' : '') +
       '<div class="cta"><a class="btn" href="#/play/' + sess.mode + (sess.params.topic ? '?topic=' + sess.params.topic : '') + '" data-act="again">🔁 Ещё раз</a>' +
       (w.length ? '<a class="btn ghost" href="#/play/mix?ids=' + w.join(',') + '&n=' + Math.max(6, w.length * 2) + '">🩹 Повторить ошибки</a>' : '') + '<a class="btn ghost" href="#/train">Тренажёры</a></div></section>';
+    afterRender();
+    if (stars >= 2) { FX.sfx('done'); FX.burst(innerWidth / 2, 190, 60, { speed: 8 }); }
+    if (stars === 3) setTimeout(() => FX.rain(110), 350);
     sess = null;
   }
 
@@ -600,7 +717,7 @@
     const due = dueList().length;
     app.innerHTML = '<div class="page-head"><h1>🎮 Тренажёр</h1><p>Выбери тему (или все сразу) и режим. Чем чаще ошибаешься в формуле — тем чаще она будет попадаться.</p></div>' +
       '<div class="tchips" role="group" aria-label="Тема">' + tchips + '</div>' +
-      '<div class="mgrid">' + MODES.map((m) => '<a class="mcard' + (m.id === 'mix' ? ' hot' : '') + '" href="#/play/' + m.id + (selTopic ? '?topic=' + selTopic : '') + '"><span class="mi">' + m.icon + '</span><div><b>' + m.name + '</b><small>' + m.desc + '</small></div></a>').join('') + '</div>' +
+      '<div class="mgrid">' + MODES.map((m) => '<a class="mcard' + (m.id === 'mix' || m.id === 'blitz' ? ' hot' : '') + '" href="#/play/' + m.id + (selTopic ? '?topic=' + selTopic : '') + '"><span class="mi">' + m.icon + '</span><div><b>' + m.name + '</b><small>' + m.desc + '</small></div></a>').join('') + '</div>' +
       '<div class="cta center"><a class="btn big" href="#/play/recall?due=1">⏰ Повторить сегодня' + (due ? ' (' + due + ')' : '') + '</a></div>';
   }
 
@@ -609,7 +726,7 @@
     app.innerHTML = '<div class="page-head"><h1>🧠 Техники мнемоники</h1><p>Мнемоника — это способы запоминать с помощью образов, слов и логики. Ниже — 8 приёмов, на которых построен весь сайт.</p></div>' +
       '<div class="tgrid2">' + D.techs.map((t) => '<article class="tech"><div class="tech-i">' + t.icon + '</div><h3>' + t.name + '</h3><p class="tech-s">' + t.short + '</p><p>' + t.how + '</p><div class="ex"><b>Пример.</b> ' + txt(t.ex) + '</div></article>').join('') + '</div>' +
       '<section class="palace"><div class="sec-head"><h2>🏛️ Дворец памяти: маршрут по школе</h2></div><p class="muted">Представь, что идёшь по школе. В каждой комнате «стоит» образ из темы. Пройди маршрут мысленно — и вспомнишь все формулы по порядку.</p>' +
-      [7, 8].map((g) => '<h3 class="pal-g">' + g + ' класс</h3><ol class="route">' + TS.filter((t) => t.grade === g).map((t, i) => '<li ' + topicColor(t) + '><a href="#/learn/' + t.id + '"><span class="ti">' + t.icon + '</span><div><b>' + (i + 1) + '. ' + esc(t.place) + '</b><small>' + esc(t.name) + ' · ' + FS.filter((f) => f.topic === t.id).map((f) => (f.m && f.m.img || '').slice(0, 2)).join(' ') + '</small></div></a></li>').join('') + '</ol>').join('') + '</section>' +
+      [7, 8].map((g) => '<h3 class="pal-g">' + g + ' класс</h3><ol class="route">' + TS.filter((t) => t.grade === g).map((t, i) => '<li ' + topicColor(t) + '><a href="#/learn/' + t.id + '"><span class="ti">' + t.icon + '</span><div><b>' + (i + 1) + '. ' + esc(t.place) + '</b><small>' + esc(t.name) + ' · ' + FS.filter((f) => f.topic === t.id).map((f) => gx(f.m && f.m.img, 2)).join(' ') + '</small></div></a></li>').join('') + '</ol>').join('') + '</section>' +
       '<section class="plan"><h2>⏱️ План на 10 минут в день</h2><ol class="steps-l"><li><b>2 мин.</b> Открой тему и прочитай образ-историю.</li><li><b>3 мин.</b> «Закрой и вспомни»: скрой формулу, восстанови по подсказке.</li><li><b>4 мин.</b> Тренажёр «Микс» по этой теме.</li><li><b>1 мин.</b> Запиши свою мнемонику в карточке — свои образы работают лучше всего.</li></ol></section>' +
       '<section class="tutor"><h2>👩‍🏫 Для репетитора</h2><p>Занятие на 30 минут: 5 мин — «Формула дня» и образ-история; 10 мин — «Карточки» с подсказками; 10 мин — «Микс» по теме; 5 мин — разбор ошибок на экране результатов. Прогресс можно переносить между устройствами на странице «Прогресс» (экспорт/импорт).</p></section>';
   }
@@ -624,9 +741,10 @@
     app.innerHTML = '<div class="page-head"><h1>📈 Прогресс</h1><p>Все данные хранятся только в твоём браузере.</p></div>' +
       '<div class="bento"><div class="b b-ring">' + ring(fs.length ? got / fs.length : 0, 96, got + '/' + fs.length) + '<div><b>Освоено</b><small>уровень «4 из 5» и выше</small></div></div>' +
       '<div class="b"><span class="big-n">👀 ' + seen + '</span><b>Изучено формул</b><small>из ' + fs.length + '</small></div><div class="b"><span class="big-n">🔥 ' + streak() + '</span><b>Дней подряд</b></div><div class="b"><span class="big-n">' + rk.r[2] + ' ' + (meta.xp || 0) + '</span><b>' + rk.r[1] + '</b><small>' + (rk.nxt ? 'ещё ' + (rk.nxt[0] - (meta.xp || 0)) + ' XP до следующего' : 'максимум!') + '</small></div></div>' +
+      '<section><h2>🏅 Достижения <small>(' + Object.keys(meta.ach).length + '/' + ACH.length + ')</small></h2><div class="achgrid">' + ACH.map((a) => '<div class="ach' + (meta.ach[a.id] ? ' got' : '') + '"><span class="ai">' + a.icon + '</span><div><b>' + a.name + '</b><small>' + a.desc + '</small></div></div>').join('') + '</div></section>' +
       '<section><h2>Активность за 2 недели</h2><div class="spark">' + last.map((x) => '<div class="sp"><i style="height:' + Math.round((x[1] / mx) * 100) + '%" title="' + x[0] + ': ' + x[1] + '"></i><small>' + x[0].slice(8) + '</small></div>').join('') + '</div></section>' +
       '<section><h2>По темам</h2><div class="plist">' + TS.filter(gradeOk).map((t) => '<a class="prow" href="#/learn/' + t.id + '" ' + topicColor(t) + '><span class="ti">' + t.icon + '</span><b>' + esc(t.name) + '</b><div class="pbar"><i style="width:' + Math.round(topicPct(t.id) * 100) + '%"></i></div><small>' + Math.round(topicPct(t.id) * 100) + '%</small></a>').join('') + '</div></section>' +
-      '<section><h2>Все формулы</h2><div class="dots">' + fs.map((f) => { const b = prog[f.id] ? prog[f.id].b : 0, seenF = prog[f.id] && prog[f.id].seen; return '<a class="dot b' + b + (seenF ? '' : ' new') + '" href="#/card/' + f.id + '" title="' + esc(f.name) + ' — уровень ' + b + '/5">' + ((f.m && f.m.img) ? f.m.img.slice(0, 2) : '⚛') + '</a>'; }).join('') + '</div><p class="tiny">Чем ярче точка — тем крепче память (0–5).</p></section>' +
+      '<section><h2>Все формулы</h2><div class="dots">' + fs.map((f) => { const b = prog[f.id] ? prog[f.id].b : 0, seenF = prog[f.id] && prog[f.id].seen; return '<a class="dot b' + b + (seenF ? '' : ' new') + '" href="#/card/' + f.id + '" title="' + esc(f.name) + ' — уровень ' + b + '/5">' + ((f.m && f.m.img) ? gx(f.m.img, 2) : '⚛') + '</a>'; }).join('') + '</div><p class="tiny">Чем ярче точка — тем крепче память (0–5).</p></section>' +
       (weak.length ? '<section><h2>🩹 Слабые места</h2><div class="plist">' + weak.slice(0, 8).map((f) => '<a class="prow two" href="#/card/' + f.id + '"><span class="ti">' + ((f.m && f.m.img) || '⚛') + '</span><b>' + esc(f.name) + '</b><small>ошибок: ' + prog[f.id].bad + '</small></a>').join('') + '</div><div class="cta"><a class="btn" href="#/play/mix?ids=' + weak.slice(0, 8).map((f) => f.id).join(',') + '&n=10">Тренировать слабые</a></div></section>' : '') +
       '<section class="io"><h2>Перенос и сброс</h2><p class="muted">Скопируй код и вставь на другом устройстве — прогресс и твои мнемоники перенесутся.</p><textarea id="io" rows="3" placeholder="Здесь будет код прогресса"></textarea><div class="cta"><button class="btn ghost sm" data-act="export">Скопировать код</button><button class="btn ghost sm" data-act="import">Загрузить код</button><button class="btn danger sm" data-act="reset">Сбросить всё</button></div></section>';
   }
@@ -640,7 +758,7 @@
   function route() {
     const { parts, params } = parse(), v = parts[0] || '';
     window.scrollTo(0, 0);
-    if (v !== 'play') { /* уходим с сессии — сессия остаётся, если вернутся через «✕» нет */ }
+    disposeLab(); if (v !== 'play') stopTimer();
     syncChrome(v === 'card' ? 'learn' : v === 'play' ? 'train' : v);
     app.classList.remove('fade'); void app.offsetWidth; app.classList.add('fade');
     if (v === 'play') {
@@ -652,19 +770,52 @@
     }
     sess = null;
     switch (v) {
-      case 'learn': return viewLearn(parts[1]);
-      case 'card': return viewCard(parts[1]);
-      case 'train': return viewTrain();
-      case 'tech': return viewTech();
-      case 'progress': return viewProgress();
-      default: return viewHome();
+      case 'learn': viewLearn(parts[1]); break;
+      case 'card': viewCard(parts[1]); break;
+      case 'train': viewTrain(); break;
+      case 'tech': viewTech(); break;
+      case 'progress': viewProgress(); break;
+      case 'lab': viewLab(parts[1]); break;
+      default: viewHome();
     }
+    afterRender();
+  }
+
+  /* ---------- «Лаборатория» ---------- */
+  let labCleanup = null;
+  function disposeLab() { if (labCleanup) { try { labCleanup(); } catch (e) { /* ничего */ } labCleanup = null; } }
+  function viewLab(id) {
+    const sims = (window.LAB && LAB.sims) || [];
+    if (!id) {
+      app.innerHTML = '<div class="page-head"><h1>🧪 Лаборатория</h1><p>Крути ползунки и смотри, как работают формулы. Каждый опыт связан с карточкой: сначала поиграй, потом запомни.</p></div><div class="labgrid">' +
+        sims.map((sm) => '<a class="labcard" href="#/lab/' + sm.id + '"><span class="li">' + sm.icon + '</span><b>' + esc(sm.name) + '</b><span class="lf">' + math(byId[sm.fid].f) + '</span><small>Попробовать →</small></a>').join('') + '</div>';
+      return;
+    }
+    const sm = sims.find((x) => x.id === id); if (!sm) { location.hash = '#/lab'; return; }
+    const f = byId[sm.fid], i = sims.indexOf(sm), nx = sims[(i + 1) % sims.length];
+    app.innerHTML = '<a class="back" href="#/lab">← Все опыты</a><section class="lab"><div class="lab-head"><span class="li big">' + sm.icon + '</span><div><h1>' + esc(sm.name) + '</h1><div class="lab-f">' + math(f.f, 'big') + '</div></div></div>' +
+      '<div class="lab-grid"><div class="stage" id="stage"></div><div class="lab-side"><div class="controls" id="ctl"></div><div class="readout" id="out"></div><p class="lab-tip">💡 ' + txt(sm.tip) + '</p>' +
+      '<div class="cta"><a class="btn sm" href="#/card/' + sm.fid + '">📖 Карточка формулы</a><a class="btn ghost sm" href="#/lab/' + nx.id + '">Следующий опыт →</a></div></div></div></section>';
+    labCleanup = sm.mount({ stage: document.getElementById('stage'), ctl: document.getElementById('ctl'), out: document.getElementById('out') });
+    meta.labs[id] = 1; saveAll(); if (Object.keys(meta.labs).length >= 3) unlock('lab3');
+  }
+
+  /* ---------- после отрисовки: каскад, счётчики, кольца ---------- */
+  function afterRender() {
+    const H = innerHeight * 1.25; let i = 0;
+    app.querySelectorAll('.tcard, .mcard, .b, .fcard, .step, .tech, .prow, .route li, .fact, .dot, .labcard, .wrong, .ach, .cnode, .daily, .tk').forEach((el) => {
+      if (el.getBoundingClientRect().top < H) { el.style.setProperty('--d', (i++ * 45) + 'ms'); el.classList.add('rv'); } else el.classList.add('rv-s');
+    });
+    FX.runCounters(app);
+    setTimeout(() => app.querySelectorAll('.rf[data-o]').forEach((el) => { el.style.strokeDashoffset = el.dataset.o; }), 60);
   }
 
   /* ============ события ============ */
   document.addEventListener('click', (e) => {
     const g = e.target.closest('[data-grade]');
     if (g) { grade = g.dataset.grade; store.set('grade', grade); syncChrome(parse().parts[0] || ''); if (!sess) route(); return; }
+    if (e.target.closest('a[href], button')) FX.sfx('click');
+    if (e.target.closest('#sndBtn')) { FX.setSound(!FX.soundOn()); updateSndBtn(); toast(FX.soundOn() ? 'Звук включён' : 'Звук выключен'); return; }
     if (e.target.closest('#themeBtn')) { const i = COLORS.findIndex((c) => c[0] === xcolor), n = COLORS[(i + 1) % COLORS.length]; xcolor = n[0]; store.set('xcolor', xcolor); applyTheme(); toast('Цвет фона: ' + n[1]); return; }
     const a = e.target.closest('[data-act]'); if (!a) return;
     const act = a.dataset.act;
@@ -687,20 +838,22 @@
       case 'rstep': { const q = cur(); q.step = Math.max(q.step, +a.dataset.to); if (q.step < 3) q.usedHints = true; renderQ(); break; }
       case 'rate': rate(+a.dataset.r); break;
       case 'next': next(); break;
-      case 'quit': sess = null; break;
+      case 'quit': stopTimer(); sess = null; break;
+      case 'goto': { const el = document.getElementById('c-' + a.dataset.id); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } break; }
+      case 'poke': { a.classList.remove('poke'); void a.offsetWidth; a.classList.add('poke'); const r = a.getBoundingClientRect(); FX.burst(r.left + r.width / 2, r.top + r.height / 2, 14, { speed: 4 }); FX.sfx('ok'); break; }
       case 'again': sess = null; if (location.hash === a.getAttribute('href')) route(); break;
       case 'export': { const ta = document.getElementById('io'); ta.value = btoa(unescape(encodeURIComponent(JSON.stringify({ prog, meta, mine })))); ta.select(); try { document.execCommand('copy'); toast('Код скопирован'); } catch (er) { toast('Скопируй код вручную'); } break; }
-      case 'import': { const ta = document.getElementById('io'); try { const d = JSON.parse(decodeURIComponent(escape(atob(ta.value.trim())))); prog = d.prog || {}; meta = d.meta || { xp: 0, days: {} }; mine = d.mine || {}; store.set('mine', mine); saveAll(); toast('Прогресс загружен'); viewProgress(); } catch (er) { toast('Неверный код'); } break; }
-      case 'reset': if (confirm('Точно сбросить весь прогресс и свои мнемоники?')) { prog = {}; meta = { xp: 0, days: {} }; mine = {}; store.set('mine', mine); saveAll(); toast('Прогресс сброшен'); viewProgress(); } break;
+      case 'import': { const ta = document.getElementById('io'); try { const d = JSON.parse(decodeURIComponent(escape(atob(ta.value.trim())))); prog = d.prog || {}; meta = d.meta || { xp: 0, days: {} }; normMeta(); mine = d.mine || {}; store.set('mine', mine); saveAll(); toast('Прогресс загружен'); viewProgress(); } catch (er) { toast('Неверный код'); } break; }
+      case 'reset': if (confirm('Точно сбросить весь прогресс и свои мнемоники?')) { prog = {}; meta = { xp: 0, days: {} }; normMeta(); mine = {}; store.set('mine', mine); saveAll(); toast('Прогресс сброшен'); viewProgress(); } break;
     }
   });
   document.addEventListener('input', (e) => {
     const t = e.target.closest('[data-mine]'); if (!t) return;
-    mine[t.dataset.mine] = t.value; clearTimeout(input.k); input.k = setTimeout(() => store.set('mine', mine), 300);
+    mine[t.dataset.mine] = t.value; if (t.value.trim().length >= 5) unlock('mine'); clearTimeout(input.k); input.k = setTimeout(() => store.set('mine', mine), 300);
   });
   function input() {}
   /* ---------- управление как в XMB: ◀ ▶ разделы, ▲ ▼ пункты, Enter — ✕, Esc — ○ ---------- */
-  const NAV_ORDER = ['', 'learn', 'train', 'tech', 'progress'];
+  const NAV_ORDER = ['', 'learn', 'train', 'lab', 'tech', 'progress'];
   const navOf = (v) => (v === 'card' ? 'learn' : v === 'play' ? 'train' : v || '');
   function parentHash() {
     const { parts } = parse(), v = parts[0] || '';
@@ -742,38 +895,9 @@
     else if (q.type === 'build') { e.preventDefault(); checkBuild(); }
   });
 
-  /* ---------- шёлковые волны на фоне ---------- */
-  function initWave() {
-    const cv = document.getElementById('wave'); if (!cv || !cv.getContext) return;
-    const ctx = cv.getContext('2d'), reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const L = [{ a: .07, f: 1.1, s: .22, y: .40, al: .20 }, { a: .085, f: .8, s: -.16, y: .50, al: .16 }, { a: .055, f: 1.5, s: .3, y: .60, al: .15 }, { a: .1, f: .65, s: .11, y: .70, al: .11 }];
-    let w = 0, h = 0, last = 0;
-    function size() { w = cv.width = Math.max(320, Math.floor(innerWidth / 2)); h = cv.height = Math.max(240, Math.floor(innerHeight / 2)); }
-    function draw(t) {
-      ctx.clearRect(0, 0, w, h);
-      L.forEach((l, i) => {
-        ctx.beginPath();
-        for (let x = 0; x <= w; x += 6) {
-          const n = x / Math.max(w, h * 1.7), y = h * (l.y + l.a * Math.sin(n * Math.PI * 2 * l.f + t * l.s * 2 + i * 1.7) + l.a * .55 * Math.sin(n * Math.PI * 2 * l.f * 2.3 - t * l.s * 1.4 + i));
-          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = 'rgba(255,255,255,' + (l.al + .22) + ')'; ctx.lineWidth = 1.4; ctx.stroke();
-        ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
-        const g = ctx.createLinearGradient(0, h * (l.y - l.a), 0, h);
-        g.addColorStop(0, 'rgba(255,255,255,' + l.al + ')'); g.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = g; ctx.fill();
-      });
-    }
-    function frame(ts) {
-      if (!document.hidden && ts - last > 40) { last = ts; draw(ts / 1000); }
-      requestAnimationFrame(frame);
-    }
-    size(); draw(3);
-    let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { size(); draw(3); }, 150); });
-    if (!reduce) requestAnimationFrame(frame);
-  }
-
   window.addEventListener('hashchange', route);
-  D._test = { M, toLin, tokensOf, canonDsl, canonEq, makeCalc, makePick, makeTri, makeMnemo, makeBuild, makeSym, makeRule, makeFact, makeConv, capable, fmt, parseNum, subst, byId };
-  applyTheme(); initWave(); refreshStatus(); setInterval(refreshStatus, 15000); route();
+  D._test = { peek: () => (sess ? sess.items[sess.i] : null), M, toLin, tokensOf, canonDsl, canonEq, makeCalc, makePick, makeTri, makeMnemo, makeBuild, makeSym, makeRule, makeFact, makeConv, capable, fmt, parseNum, subst, byId };
+  function updateSndBtn() { const b = document.getElementById('sndBtn'); if (b) { b.textContent = FX.soundOn() ? '🔊' : '🔇'; b.setAttribute('aria-pressed', FX.soundOn() ? 'true' : 'false'); } }
+  D.util = { M, math, fmt, esc, txt };
+  applyTheme(); FX.background(); FX.initRipple(); FX.initTilt(); refreshStatus(); setInterval(refreshStatus, 15000); updateSndBtn(); route(); FX.boot();
 })();
