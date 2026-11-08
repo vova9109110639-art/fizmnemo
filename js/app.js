@@ -19,6 +19,8 @@
   const gx = (str, k) => { str = str || ''; return SEG ? [...SEG.segment(str)].slice(0, k).map((x) => x.segment).join('') : [...str].slice(0, k).join(''); };
 
   /* ---------- математика: мини-язык → HTML ---------- */
+  const FN = ['arcsin', 'arccos', 'arctg', 'arcctg', 'sin', 'cos', 'ctg', 'tg', 'log', 'lg', 'ln'];
+  function matchParen(str, start) { let d = 0; for (let j = start; j < str.length; j++) { if (str[j] === '(') d++; else if (str[j] === ')') { d--; if (d === 0) return j; } } return str.length; }
   function M(src) {
     let i = 0;
     function seq(stop) {
@@ -28,13 +30,18 @@
         if (c === '{') { i++; const n = seq('|'); i++; const d = seq('}'); i++; out += '<span class="fr"><span class="nu">' + n + '</span><span class="de">' + d + '</span></span>'; }
         else if (c === '_' || c === '^') {
           i++; let t;
-          if (src[i] === '(') { const j = src.indexOf(')', i); t = src.slice(i + 1, j); i = j + 1; } else { t = src[i++]; }
-          out += c === '_' ? '<sub>' + esc(t) + '</sub>' : '<sup>' + esc(t) + '</sup>';
+          if (src[i] === '(') { const j = matchParen(src, i); t = src.slice(i + 1, j); i = j + 1; } else { t = src[i++]; }
+          if (c === '_') out += '<sub>' + (/^[A-Za-z0-9 +\u2212\-,.]+$/.test(t) ? M(t) : esc(t)) + '</sub>';
+          else out += '<sup>' + M(t) + '</sup>';
         }
-        else if (c === 'Δ' || c === 'Γ') { out += '<span class="up">' + c + '</span>'; i++; }
-        else if (/\p{L}/u.test(c)) { out += '<i>' + c + '</i>'; i++; }
-        else if (c === '·') { out += '<span class="op">·</span>'; i++; }
-        else { out += esc(c); i++; }
+        else if (c === 'Δ' || c === 'Γ' || c === 'π') { out += '<span class="up">' + c + '</span>'; i++; }
+        else {
+          const fn = /[A-Za-z]/.test(c) && !/[A-Za-z]/.test(src[i - 1] || '') ? FN.find((n) => src.startsWith(n, i)) : null;
+          if (fn) { out += '<span class="fn">' + fn + '</span>'; i += fn.length; }
+          else if (/\p{L}/u.test(c)) { out += '<i>' + c + '</i>'; i++; }
+          else if (c === '·') { out += '<span class="op">·</span>'; i++; }
+          else { out += esc(c); i++; }
+        }
       }
       return out;
     }
@@ -46,7 +53,7 @@
     src = src.replace(/\s+/g, '');
     let i = 0;
     const wrapN = (n) => (/[+−-]/.test(n) ? '(' + n + ')' : n);
-    const wrapD = (d) => (/[+−\-·/]/.test(d) ? '(' + d + ')' : d);
+    const wrapD = (d) => ((d.match(TOK) || []).length > 1 ? '(' + d + ')' : d);
     function seq(stop) {
       let out = '';
       while (i < src.length && !stop.includes(src[i])) {
@@ -58,32 +65,46 @@
     }
     return seq('');
   }
-  const TOK = /Δ\p{L}(?:_\([^)]*\)|_[\p{L}\d])?|\p{L}(?:_\([^)]*\)|_[\p{L}\d])?(?:\^\d)?|\d+(?:[.,]\d+)?|[=+\-−·/()%<>√]/gu;
+  const TOK = /(?:arcsin|arccos|arctg|arcctg|sin|cos|ctg|tg|log|lg|ln)(?:_\([^)]*\)|_[\p{L}\d])?(?:\^\d)?|Δ\p{L}(?:_\([^)]*\)|_[\p{L}\d])?|\p{L}(?:_\([^)]*\)|_[\p{L}\d])?(?:\^\([^)]*\)|\^[\p{L}\d])?|\d+(?:[.,]\d+)?|\^(?:\([^)]*\)|[\p{L}\d])|[=+\-−·/()%<>√°±≤≥≠∞]/gu;
   const tokensOf = (dsl) => toLin(dsl).match(TOK) || [];
 
+  const FNRE = /^(?:arcsin|arccos|arctg|arcctg|sin|cos|ctg|tg|log|lg|ln)/;
   function canonSide(tk) {
     let i = 0;
+    const startsFactor = (t) => t !== undefined && /^[\p{L}\d(√]/u.test(t);
     function expr() {
       const terms = []; let sign = '+';
+      if (tk[i] === '−' || tk[i] === '-') { sign = '-'; i++; } else if (tk[i] === '±') { sign = '±'; i++; } else if (tk[i] === '+') i++;
       terms.push(sign + term());
-      while (tk[i] === '+' || tk[i] === '−' || tk[i] === '-') { sign = tk[i++] === '+' ? '+' : '-'; terms.push(sign + term()); }
+      while (tk[i] === '+' || tk[i] === '−' || tk[i] === '-' || tk[i] === '±') { const o = tk[i++]; sign = o === '+' ? '+' : o === '±' ? '±' : '-'; terms.push(sign + term()); }
       return terms.sort().join('');
     }
     function term() {
       const num = [], den = []; num.push(factor());
-      while (tk[i] === '·' || tk[i] === '/') { const op = tk[i++]; const f = factor(); (op === '·' ? num : den).push(f); }
+      for (;;) {
+        const t = tk[i];
+        if (t === '·' || t === '/') { i++; const f = factor(); (t === '·' ? num : den).push(f); }
+        else if (startsFactor(t)) num.push(factor());
+        else break;
+      }
       return num.sort().join('·') + (den.length ? '/' + den.sort().join('·') : '');
     }
     function factor() {
-      let f;
-      if (tk[i] === '(') { i++; f = '(' + expr() + ')'; if (tk[i] !== ')') throw 0; i++; }
-      else if (tk[i] === '√') { i++; f = '√' + factor(); }
-      else if (tk[i] === undefined) throw 0;
-      else f = tk[i++];
-      if (tk[i] === '%') { f += '%'; i++; }
+      let f; const t = tk[i];
+      if (t === undefined) throw 0;
+      if (t === '(') { i++; f = '(' + expr() + ')'; if (tk[i] !== ')') throw 0; i++; }
+      else if (t === '√') { i++; f = '√' + factor(); }
+      else if (FNRE.test(t)) { i++; f = t + '(' + factor() + ')'; }
+      else { f = t; i++; }
+      while (tk[i] !== undefined && (tk[i] === '%' || tk[i] === '°' || tk[i][0] === '^')) f += tk[i++];
       return f;
     }
     const e = expr(); if (i < tk.length) throw 0; return e;
+  }
+  function canonStrict(tokens) {
+    const idx = tokens.indexOf('=');
+    if (idx < 0) return canonSide(tokens);
+    return [canonSide(tokens.slice(0, idx)), canonSide(tokens.slice(idx + 1))].sort().join('=');
   }
   function canonEq(tokens) {
     try {
@@ -202,10 +223,24 @@
     return n;
   }
   const mastered = (id) => prog[id] && prog[id].b >= 4;
-  const gradeOk = (x) => grade === 'all' || String(x.grade) === grade;
-  const factGrade = (f) => (topicById[f.topic] ? topicById[f.topic].grade : 8);
+  const exHas = (x, c) => String(x.ex || '').includes(c);
+  const gradeOk = (x) => grade === 'all' || (grade === 'oge' ? exHas(x, 'o') : grade === 'ege' ? exHas(x, 'e') : String(x.grade) === grade);
   const visFormulas = () => FS.filter(gradeOk);
-  const visFacts = () => FACTS.filter((f) => grade === 'all' || String(factGrade(f)) === grade);
+  const visFacts = () => FACTS.filter((f) => gradeOk(topicById[f.topic] || {}));
+  const convOk = (c) => grade === 'all' || grade === 'ege' || (c.g || 7) <= (grade === 'oge' ? 9 : +grade);
+  const examChips = (x) => (exHas(x, 'o') ? '<span class="chip ex o">ОГЭ</span>' : '') + (exHas(x, 'e') ? '<span class="chip ex e">ЕГЭ</span>' : '');
+  const EXAMS = [
+    { id: 'oge', c: 'o', icon: '📘', name: 'ОГЭ', sub: 'физика · 9 класс', note: 'Курс 7–9 классов. В работе встречаются тестовые вопросы, расчётные задачи, анализ графиков, таблиц и опытов. Формул на экзамене не дают — только справочные данные.' },
+    { id: 'ege', c: 'e', icon: '🎓', name: 'ЕГЭ', sub: 'физика · 11 класс', note: 'Курс 7–11 классов: механика, молекулярная физика и термодинамика, электродинамика с оптикой, основы СТО и квантовая физика. Есть задачи с кратким ответом и с развёрнутым решением. Формул не дают — только справочные данные.' }
+  ];
+  function examStat(e) {
+    const ts = TS.filter((t) => exHas(t, e.c)), fs = FS.filter((f) => exHas(f, e.c));
+    return { ts, fs, got: fs.filter((f) => mastered(f.id)).length, nf: FACTS.filter((x) => exHas(topicById[x.topic] || {}, e.c)).length };
+  }
+  function learnGroups() {
+    if (grade === 'oge' || grade === 'ege') return D.secs.map((sc) => ({ title: sc.icon + ' ' + sc[grade], items: TS.filter((t) => t.sec === sc.id && gradeOk(t)) })).filter((g) => g.items.length);
+    return [7, 8, 9, 10, 11].filter((g) => grade === 'all' || String(g) === grade).map((g) => ({ title: g + ' класс', items: TS.filter((t) => t.grade === g) }));
+  }
   const dueList = () => visFormulas().filter((f) => prog[f.id] && prog[f.id].seen > 0 && prog[f.id].due <= Date.now());
 
   /* ============ UI: общее ============ */
@@ -254,7 +289,7 @@
     const vars = f.vars && f.vars.length ? '<table class="vars"><tbody>' + f.vars.map((v) => '<tr><td class="vs">' + math(v[0]) + '</td><td>' + esc(v[1]) + (v[3] ? ' <small>(задана)</small>' : '') + '</td><td class="vu">' + (v[2] ? esc(v[2]) : '—') + '</td></tr>').join('') + '</tbody></table>' : '';
     const p = prog[f.id], sim = window.LAB && LAB.sims.find((x) => x.fid === f.id);
     return '<article class="fcard" id="c-' + esc(f.id) + '" ' + topicColor(t) + '>' +
-      '<header class="fc-head"><div class="fc-img" data-act="poke" title="Нажми!">' + (m.img || t.icon) + '</div><div><div class="chips"><span class="chip">' + f.grade + ' класс</span><a class="chip link" href="#/learn/' + t.id + '">' + t.icon + ' ' + esc(t.name) + '</a>' +
+      '<header class="fc-head"><div class="fc-img" data-act="poke" title="Нажми!">' + (m.img || t.icon) + '</div><div><div class="chips"><span class="chip">' + f.grade + ' класс</span>' + examChips(f) + '<a class="chip link" href="#/learn/' + t.id + '">' + t.icon + ' ' + esc(t.name) + '</a>' +
       (p && p.b >= 4 ? '<span class="chip ok">✓ освоено</span>' : '') + '</div><h3>' + esc(f.name) + '</h3></div></header>' +
       (f.f ? '<div class="fbox" data-box><div class="fbox-in">' + math(f.f, 'big') + '</div><button class="ghost sm" data-act="cover">🙈 Закрой и вспомни</button></div>' : '') +
       (f.ruleText ? '<div class="rule">' + txt(f.ruleText) + '</div>' : '') +
@@ -278,28 +313,29 @@
     const due = dueList().length, rk = rank(), st = streak();
     const dayF = (() => { const arr = fs.length ? fs : FS; let h = 0; for (const c of today()) h = (h * 31 + c.charCodeAt(0)) >>> 0; return arr[h % arr.length]; })();
     const dm = dayF.m || {};
-    const rotIds = ['speed', 'pressure', 'archimedes', 'ohm', 'lens'].filter((id) => byId[id]);
+    const rotIds = ['speed', 'newton2', 'archimedes', 'ohm', 'clapeyron', 'einstein'].filter((id) => byId[id]);
     const rot = rotIds.map((id, i) => { const f = byId[id], l = f.m.lines[0].x.split(/[.:]/)[0].slice(0, 64); return '<span class="rot-i" style="--i:' + i + ';--n:' + rotIds.length + '">' + math(f.f) + '<b>' + gx(f.m.img, 2) + '</b><i>' + esc(l) + '</i></span>'; }).join('');
     const tkItems = shuffle(visFormulas().filter((f) => f.f && f.m)).slice(0, 16).map((f) => '<span class="tk"><b>' + gx(f.m.img, 2) + '</b>' + math(f.f) + '</span>').join('');
-    const labPromo = (window.LAB ? LAB.sims.slice(0, 4) : []).map((sm) => '<a class="labcard" href="#/lab/' + sm.id + '"><span class="li">' + sm.icon + '</span><b>' + esc(sm.name) + '</b><span class="lf">' + math(byId[sm.fid].f) + '</span><small>Попробовать →</small></a>').join('');
-    const lesson = TS.filter(gradeOk).map((t) => {
+    const labPromo = (window.LAB ? LAB.sims.slice(0, 4) : []).map((sm) => '<a class="labcard" href="#/lab/' + sm.id + '"><span class="li">' + sm.icon + '</span><b>' + esc(sm.name) + '</b><span class="lf">' + math(sm.f || byId[sm.fid].f) + '</span><small>Попробовать →</small></a>').join('');
+    const lesson = TS.filter(gradeOk).slice(0, 12).map((t) => {
       const n = FS.filter((f) => f.topic === t.id).length;
       return '<a class="tcard" href="#/learn/' + t.id + '" ' + topicColor(t) + '><span class="ti">' + t.icon + '</span><div><b>' + esc(t.name) + '</b><small>' + esc(t.place) + ' · ' + n + ' карточ.</small></div><div class="pbar"><i style="width:' + Math.round(topicPct(t.id) * 100) + '%"></i></div></a>';
     }).join('');
     app.innerHTML =
-      '<section class="hero"><div class="hero-copy"><span class="pill">⚛️ Физика 7–8 класс</span><h1>Формулы, которые <em>запоминаются сами</em></h1>' +
-      '<p>Образы, смешные фразы, треугольники и «дворец памяти». Выучи формулу за минуту, а потом закрепи тренажёрами с интервальным повторением.</p>' +
+      '<section class="hero"><div class="hero-copy"><span class="pill">⚛️ Физика 7–11 · ОГЭ · ЕГЭ</span><h1>Формулы, которые <em>запоминаются сами</em></h1>' +
+      '<p>Все формулы школьной физики с 7 по 11 класс: образы, смешные фразы, треугольники и «дворец памяти». Выучи формулу за минуту, а потом закрепи тренажёрами с интервальным повторением.</p>' +
       '<div class="rotator" aria-hidden="true">' + rot + '</div>' +
       '<div class="cta"><a class="btn big" href="#/play/mix">🚀 Начать тренировку</a><a class="btn ghost big" href="#/lab">🧪 Опыты</a></div></div>' +
       '<div class="daily" ' + topicColor(topicOf(dayF)) + '><span class="pill">✨ Формула дня</span><div class="daily-img">' + (dm.img || '⚛️') + '</div><h3>' + esc(dayF.name) + '</h3>' +
       (dayF.f ? '<div class="fbox-in">' + math(dayF.f, 'big') + '</div>' : '<p class="muted">' + txt(dayF.ruleText || '') + '</p>') +
       '<p class="daily-l">' + (dm.lines && dm.lines[0] ? txt(dm.lines[0].x) : '') + '</p><a class="btn sm" href="#/card/' + esc(dayF.id) + '">Открыть карточку →</a></div></section>' +
       '<div class="ticker" aria-hidden="true"><div class="tk-track">' + tkItems + tkItems + '</div></div>' +
-      '<section class="bento"><div class="b b-ring">' + ring(total ? got / total : 0, 96, '<span data-count="' + got + '">' + got + '</span>/' + total) + '<div><b>Освоено формул</b><small>из ' + total + ' в выбранном классе</small></div></div>' +
+      '<section class="bento"><div class="b b-ring">' + ring(total ? got / total : 0, 96, '<span data-count="' + got + '">' + got + '</span>/' + total) + '<div><b>Освоено формул</b><small>из ' + total + ' в выбранном разделе</small></div></div>' +
       '<div class="b"><span class="big-n">🔥 <span data-count="' + st + '">' + st + '</span></span><b>Дней подряд</b><small>' + (st ? 'так держать!' : 'позанимайся сегодня') + '</small></div>' +
       '<div class="b"><span class="big-n">' + rk.r[2] + ' <span data-count="' + (meta.xp || 0) + '">' + (meta.xp || 0) + '</span></span><b>' + rk.r[1] + '</b><small>' + (rk.nxt ? 'до «' + rk.nxt[1] + '» ещё ' + (rk.nxt[0] - (meta.xp || 0)) + ' XP' : 'максимальный ранг!') + '</small></div>' +
       '<a class="b b-due" href="#/play/recall?due=1"><span class="big-n">⏰ <span data-count="' + due + '">' + due + '</span></span><b>К повторению</b><small>' + (due ? 'нажми — повторим сейчас' : 'пока всё свежее') + '</small></a>' +
       '<a class="b" href="#/play/blitz"><span class="big-n">⚡ ' + (meta.blitz || 0) + '</span><b>Рекорд «Блица»</b><small>верных за 60 секунд</small></a></section>' +
+      '<section class="exam-promo"><div class="sec-head"><h2>🎯 Готовишься к ОГЭ или ЕГЭ?</h2><a href="#/exam">программа и советы →</a></div><div class="xpromo">' + EXAMS.map((e) => { const s = examStat(e); return '<a class="xp ' + e.id + '" href="#/learn" data-grade="' + e.id + '"><span class="xi2">' + e.icon + '</span><div><b>' + e.name + '</b><small>' + s.fs.length + ' формул · ' + s.ts.length + ' тем · освоено ' + Math.round((100 * s.got) / (s.fs.length || 1)) + '%</small></div></a>'; }).join('') + '</div></section>' +
       '<section><div class="sec-head"><h2>Темы</h2><a href="#/learn">все →</a></div><div class="tgrid">' + lesson + '</div></section>' +
       (labPromo ? '<section><div class="sec-head"><h2>🧪 Лаборатория</h2><a href="#/lab">все опыты →</a></div><div class="labgrid">' + labPromo + '</div></section>' : '') +
       '<section class="steps"><h2>Как это работает</h2><div class="sgrid">' +
@@ -312,18 +348,18 @@
   /* ============ вид: учить ============ */
   function viewLearn(tid) {
     if (!tid) {
-      const grp = (g) => '<h2>' + g + ' класс</h2><div class="tgrid big">' + TS.filter((t) => t.grade === g).map((t) => {
+      const grp = (gr) => '<h2>' + gr.title + '</h2><div class="tgrid big">' + gr.items.map((t) => {
         const n = FS.filter((f) => f.topic === t.id).length, nf = FACTS.filter((x) => x.topic === t.id).length;
         return '<a class="tcard lg" href="#/learn/' + t.id + '" ' + topicColor(t) + '><span class="ti">' + t.icon + '</span><div><b>' + esc(t.name) + '</b><small>🏛️ ' + esc(t.place) + '</small><small>' + n + ' формул' + (nf ? ' · ' + nf + ' чисел' : '') + '</small></div><div class="pbar"><i style="width:' + Math.round(topicPct(t.id) * 100) + '%"></i></div></a>';
       }).join('') + '</div>';
       app.innerHTML = '<div class="page-head"><h1>📚 Учить</h1><p>Выбери тему: в каждой — карточки с образами, фразами и ловушками, а в начале — сюжет, который связывает все формулы в одну историю.</p></div>' +
-        [7, 8].filter((g) => grade === 'all' || String(g) === grade).map(grp).join('');
+        learnGroups().map(grp).join('');
       return;
     }
     const t = topicById[tid]; if (!t) { location.hash = '#/learn'; return; }
     const fs = FS.filter((f) => f.topic === tid);
     const idx = TS.findIndex((x) => x.id === tid), prev = TS[idx - 1], next = TS[idx + 1];
-    app.innerHTML = '<div class="topic-head" ' + topicColor(t) + '><a class="back" href="#/learn">← Все темы</a><div class="th-main"><span class="th-ico">' + t.icon + '</span><div><span class="pill">' + t.grade + ' класс · станция «Дворца памяти»</span><h1>' + esc(t.name) + '</h1><p class="place">🏛️ ' + esc(t.place) + '</p></div></div>' +
+    app.innerHTML = '<div class="topic-head" ' + topicColor(t) + '><a class="back" href="#/learn">← Все темы</a><div class="th-main"><span class="th-ico">' + t.icon + '</span><div><span class="pill">' + t.grade + ' класс' + (exHas(t, 'o') ? ' · ОГЭ' : '') + (exHas(t, 'e') ? ' · ЕГЭ' : '') + ' · станция «Дворца памяти»</span><h1>' + esc(t.name) + '</h1><p class="place">🏛️ ' + esc(t.place) + '</p></div></div>' +
       '<div class="chainrow" aria-label="Маршрут образов">' + fs.map((f, i) => '<button class="cnode" style="--i:' + i + '" data-act="goto" data-id="' + esc(f.id) + '" title="' + esc(f.name) + '"><span>' + gx((f.m && f.m.img) || t.icon, 2) + '</span><small>' + esc(f.name.split(' ').slice(0, 2).join(' ')) + '</small></button>').join('') + '</div>' +
       '<div class="storybox"><b>🔗 Сюжет-цепочка</b><p>' + txt(t.story) + '</p></div><div class="cta"><a class="btn" href="#/play/mix?topic=' + t.id + '">🎲 Тренировать тему</a><a class="btn ghost" href="#/play/recall?topic=' + t.id + '">🃏 Карточки</a></div></div>' +
       '<div class="cards">' + fs.map(cardHTML).join('') + '</div>' + factsHTML(tid) +
@@ -343,9 +379,9 @@
     { id: 'mnemo', icon: '🎭', name: 'Образ → формула', desc: 'Узнай формулу по картинке-мнемонике.' },
     { id: 'calc', icon: '🧮', name: 'Посчитай', desc: 'Короткие задачи на каждую формулу.' },
     { id: 'sym', icon: '📏', name: 'Обозначения и единицы', desc: 'Буква ↔ величина ↔ единица.' },
-    { id: 'rule', icon: '📜', name: 'Правила и законы', desc: 'Руки, линзы, соединения, плавание.' },
-    { id: 'fact', icon: '🔢', name: 'Числа и константы', desc: 'Плотности, теплоёмкости, топливо…' },
-    { id: 'conv', icon: '↔️', name: 'Перевод единиц', desc: 'км/ч ↔ м/с, см² ↔ м², приставки.' },
+    { id: 'rule', icon: '📜', name: 'Правила и законы', desc: 'Руки, линзы, законы, процессы.' },
+    { id: 'fact', icon: '🔢', name: 'Числа и константы', desc: 'Плотности, теплоёмкости, константы…' },
+    { id: 'conv', icon: '↔️', name: 'Перевод единиц', desc: 'км/ч ↔ м/с, °C ↔ К, эВ ↔ Дж, приставки.' },
     { id: 'mix', icon: '🎲', name: 'Микс', desc: 'Всё вперемешку — как на контрольной.' },
     { id: 'blitz', icon: '⚡', name: 'Блиц · 60 секунд', desc: 'Сколько верных ответов успеешь за минуту?' }
   ];
@@ -355,7 +391,7 @@
   const NAMES = uniq(FS.flatMap((f) => f.vars.map((v) => v[1])));
   const capable = {
     pick: (f) => !!f.f && !!f.bad,
-    build: (f) => !!f.f && tokensOf(f.f).length <= 16 && tokensOf(f.f).length >= 3,
+    build: (f) => !!f.f && tokensOf(f.f).length <= 22 && tokensOf(f.f).length >= 3,
     tri: (f) => !!f.tri,
     mnemo: (f) => !!f.f && !!f.m,
     calc: (f) => !!f.task || (!!f.gen && !!f.ask && f.ask.length > 0),
@@ -408,7 +444,7 @@
   }
   function subst(form, vals) {
     const rhs = form.split('=').slice(1).join('=');
-    return rhs.replace(/Δ\p{L}(?:_\([^)]*\)|_[\p{L}\d])?|\p{L}(?:_\([^)]*\)|_[\p{L}\d])?/gu, (t) => (vals[t] !== undefined ? fmt(vals[t]) : t));
+    return rhs.replace(/(?:arcsin|arccos|arctg|arcctg|sin|cos|ctg|tg|log|lg|ln)(?:\^\d)?|Δ\p{L}(?:_\([^)]*\)|_[\p{L}\d])?|\p{L}(?:_\([^)]*\)|_[\p{L}\d])?/gu, (t) => (vals[t] !== undefined ? fmt(vals[t]) : t));
   }
   function makeCalc(f) {
     if (f.task) {
@@ -439,22 +475,23 @@
     return { type: 'rule', fid: f.id, title: b.q, sub: f.name, opts: idx.map((i) => ({ h: '<span class="plain">' + txt(b.o[i]) + '</span>' })), correct: corr, note: f.ruleText || (f.m && f.m.lines && f.m.lines[0] ? f.m.lines[0].x : ''), hint: hintOf(f) };
   }
   function makeFact(x) {
-    const same = FACTS.filter((y) => y.id !== x.id && y.fam === x.fam && y.v !== x.v);
-    let vals = uniq(shuffle(same).map((y) => y.v)).slice(0, 3);
-    for (const e of [x.v * 10, x.v / 10, x.v * 2, x.v / 2]) { if (vals.length >= 3) break; if (!vals.includes(e)) vals.push(e); }
-    const o = optsFrom('<span class="plain">' + fmt(x.v) + ' ' + esc(x.u) + '</span>', vals.map((v) => '<span class="plain">' + fmt(v) + ' ' + esc(x.u) + '</span>'));
+    const lab = (y) => (y.d ? '<span class="plain">' + math(y.d) + '</span>' : '<span class="plain">' + fmt(y.v) + ' ' + esc(y.u) + '</span>');
+    const same = shuffle(FACTS.filter((y) => y.id !== x.id && y.fam === x.fam && y.v !== x.v)), seen = new Set([x.v]), wr = [];
+    same.forEach((y) => { if (!seen.has(y.v) && wr.length < 3) { seen.add(y.v); wr.push(lab(y)); } });
+    for (const e of [x.v * 10, x.v / 10, x.v * 2, x.v / 2]) { if (wr.length >= 3) break; if (!seen.has(e)) { seen.add(e); wr.push('<span class="plain">' + fmt(e) + ' ' + esc(x.u) + '</span>'); } }
+    const o = optsFrom(lab(x), wr);
     return { type: 'fact', fid: x.id, title: x.q + ' — это…', sub: '', note: x.note, ...o, hint: '<div class="hint-in"><span class="h-img">🔢</span><div><p>' + txt(x.note.split('.')[0] + '.') + '</p></div></div>' };
   }
   const PFX_NOTE = { 12: 'Три Голодных Медведя Копают: Тера 12, Гига 9, Мега 6, кило 3 — каждый шаг на три нуля меньше.', 9: 'Три Голодных Медведя Копают: Тера 12, Гига 9, Мега 6, кило 3.', 6: 'Три Голодных Медведя Копают: Тера 12, Гига 9, Мега 6, кило 3.', 3: 'Три Голодных Медведя Копают: Тера 12, Гига 9, Мега 6, кило 3.', 2: 'гекто = 100 (гектопаскаль), деци = десятая, санти = сотая.', '-1': 'деци = десятая часть (дециметр).', '-2': 'санти = сотая часть (сантиметр).', '-3': 'Мышь Мелкая, Но Наглая: милли −3, микро −6, нано −9.', '-6': 'Мышь Мелкая, Но Наглая: милли −3, микро −6, нано −9.', '-9': 'Мышь Мелкая, Но Наглая: милли −3, микро −6, нано −9.' };
   function makeConv() {
-    if (Math.random() < 0.25) {
+    if (D.prefixes.length && Math.random() < 0.25) {
       const p = pick(D.prefixes), ps = D.prefixes.map((x) => x.p), wr = shuffle(uniq(ps).filter((x) => x !== p.p)).slice(0, 3);
       const pw = (n) => '<span class="plain">10' + sup(n) + '</span>';
       const o = optsFrom(pw(p.p), wr.map(pw));
       return { type: 'prefix', title: 'Приставка «' + p.n + '» (' + p.s + ') — это умножение на…', sub: 'Приставки СИ', note: PFX_NOTE[p.p], ...o };
     }
-    const c = pick(D.convs), v = pick(c.vals);
-    return { type: 'conv', title: 'Переведи единицы', sub: 'Перевод единиц', c, v, ans: R(v * c.k) };
+    const cs = D.convs.filter(convOk), c = pick(cs.length ? cs : D.convs), v = pick(c.vals);
+    return { type: 'conv', title: 'Переведи единицы', sub: 'Перевод единиц', c, v, ans: R((c.off || 0) + v * c.k) };
   }
   const makers = { pick: makePick, tri: makeTri, mnemo: makeMnemo, build: makeBuild, calc: makeCalc, sym: makeSym, rule: makeRule };
 
@@ -651,7 +688,7 @@
     q.userAns = inp.value;
     if (isNaN(v)) { inp.classList.add('shake'); setTimeout(() => inp.classList.remove('shake'), 400); toast('Введи число'); return; }
     if (q.type === 'conv') {
-      const good = close(v, q.ans, 0.01);
+      const good = close(v, q.ans, q.c.tol || 0.01);
       finish(q, good, false, '<p>' + fmt(q.v) + ' ' + esc(q.c.a) + ' = <b>' + fmt(q.ans) + ' ' + esc(q.c.b) + '</b></p><p class="note">💡 ' + esc(q.c.tip) + '</p>');
       return;
     }
@@ -725,8 +762,8 @@
   function viewTech() {
     app.innerHTML = '<div class="page-head"><h1>🧠 Техники мнемоники</h1><p>Мнемоника — это способы запоминать с помощью образов, слов и логики. Ниже — 8 приёмов, на которых построен весь сайт.</p></div>' +
       '<div class="tgrid2">' + D.techs.map((t) => '<article class="tech"><div class="tech-i">' + t.icon + '</div><h3>' + t.name + '</h3><p class="tech-s">' + t.short + '</p><p>' + t.how + '</p><div class="ex"><b>Пример.</b> ' + txt(t.ex) + '</div></article>').join('') + '</div>' +
-      '<section class="palace"><div class="sec-head"><h2>🏛️ Дворец памяти: маршрут по школе</h2></div><p class="muted">Представь, что идёшь по школе. В каждой комнате «стоит» образ из темы. Пройди маршрут мысленно — и вспомнишь все формулы по порядку.</p>' +
-      [7, 8].map((g) => '<h3 class="pal-g">' + g + ' класс</h3><ol class="route">' + TS.filter((t) => t.grade === g).map((t, i) => '<li ' + topicColor(t) + '><a href="#/learn/' + t.id + '"><span class="ti">' + t.icon + '</span><div><b>' + (i + 1) + '. ' + esc(t.place) + '</b><small>' + esc(t.name) + ' · ' + FS.filter((f) => f.topic === t.id).map((f) => gx(f.m && f.m.img, 2)).join(' ') + '</small></div></a></li>').join('') + '</ol>').join('') + '</section>' +
+      '<section class="palace"><div class="sec-head"><h2>🏛️ Дворец памяти: от школы до космодрома</h2></div><p class="muted">Представь, что идёшь по школе, потом выходишь на стадион, в лаборатории и на космодром. В каждом месте «стоит» образ из темы. Пройди маршрут мысленно — и вспомнишь все формулы по порядку.</p>' +
+      [7, 8, 9, 10, 11].map((g) => '<h3 class="pal-g">' + g + ' класс</h3><ol class="route">' + TS.filter((t) => t.grade === g).map((t, i) => '<li ' + topicColor(t) + '><a href="#/learn/' + t.id + '"><span class="ti">' + t.icon + '</span><div><b>' + (i + 1) + '. ' + esc(t.place) + '</b><small>' + esc(t.name) + ' · ' + FS.filter((f) => f.topic === t.id).map((f) => gx(f.m && f.m.img, 2)).join(' ') + '</small></div></a></li>').join('') + '</ol>').join('') + '</section>' +
       '<section class="plan"><h2>⏱️ План на 10 минут в день</h2><ol class="steps-l"><li><b>2 мин.</b> Открой тему и прочитай образ-историю.</li><li><b>3 мин.</b> «Закрой и вспомни»: скрой формулу, восстанови по подсказке.</li><li><b>4 мин.</b> Тренажёр «Микс» по этой теме.</li><li><b>1 мин.</b> Запиши свою мнемонику в карточке — свои образы работают лучше всего.</li></ol></section>' +
       '<section class="tutor"><h2>👩‍🏫 Для репетитора</h2><p>Занятие на 30 минут: 5 мин — «Формула дня» и образ-история; 10 мин — «Карточки» с подсказками; 10 мин — «Микс» по теме; 5 мин — разбор ошибок на экране результатов. Прогресс можно переносить между устройствами на странице «Прогресс» (экспорт/импорт).</p></section>';
   }
@@ -747,6 +784,29 @@
       '<section><h2>Все формулы</h2><div class="dots">' + fs.map((f) => { const b = prog[f.id] ? prog[f.id].b : 0, seenF = prog[f.id] && prog[f.id].seen; return '<a class="dot b' + b + (seenF ? '' : ' new') + '" href="#/card/' + f.id + '" title="' + esc(f.name) + ' — уровень ' + b + '/5">' + ((f.m && f.m.img) ? gx(f.m.img, 2) : '⚛') + '</a>'; }).join('') + '</div><p class="tiny">Чем ярче точка — тем крепче память (0–5).</p></section>' +
       (weak.length ? '<section><h2>🩹 Слабые места</h2><div class="plist">' + weak.slice(0, 8).map((f) => '<a class="prow two" href="#/card/' + f.id + '"><span class="ti">' + ((f.m && f.m.img) || '⚛') + '</span><b>' + esc(f.name) + '</b><small>ошибок: ' + prog[f.id].bad + '</small></a>').join('') + '</div><div class="cta"><a class="btn" href="#/play/mix?ids=' + weak.slice(0, 8).map((f) => f.id).join(',') + '&n=10">Тренировать слабые</a></div></section>' : '') +
       '<section class="io"><h2>Перенос и сброс</h2><p class="muted">Скопируй код и вставь на другом устройстве — прогресс и твои мнемоники перенесутся.</p><textarea id="io" rows="3" placeholder="Здесь будет код прогресса"></textarea><div class="cta"><button class="btn ghost sm" data-act="export">Скопировать код</button><button class="btn ghost sm" data-act="import">Загрузить код</button><button class="btn danger sm" data-act="reset">Сбросить всё</button></div></section>';
+  }
+
+  /* ============ вид: экзамен ============ */
+  function viewExam() {
+    const cards = EXAMS.map((e) => {
+      const s = examStat(e), pct = s.fs.length ? s.got / s.fs.length : 0;
+      return '<article class="xcard ' + e.id + '"><div class="xc-top"><span class="xc-ico">' + e.icon + '</span><div><h2>' + e.name + '</h2><small>' + e.sub + '</small></div>' + ring(pct, 84, Math.round(pct * 100) + '%') + '</div>' +
+        '<p>' + e.note + '</p><div class="xstats"><span><b>' + s.fs.length + '</b> формул</span><span><b>' + s.ts.length + '</b> тем</span><span><b>' + s.nf + '</b> чисел</span></div>' +
+        '<div class="cta"><a class="btn" href="#/learn" data-grade="' + e.id + '">📚 Учить программу</a><a class="btn ghost" href="#/play/mix?n=15" data-grade="' + e.id + '">🎲 Микс · 15</a><a class="btn ghost" href="#/play/blitz" data-grade="' + e.id + '">⚡ Блиц</a></div></article>';
+    }).join('');
+    const secs = EXAMS.map((e) => '<section class="xsec"><h2>' + e.icon + ' ' + e.name + ': разделы программы</h2><div class="xrows">' + D.secs.map((sc) => {
+      const ts = TS.filter((t) => t.sec === sc.id && exHas(t, e.c)); if (!ts.length) return '';
+      const fs = FS.filter((f) => ts.some((t) => t.id === f.topic)), p = fs.reduce((a, f) => a + (prog[f.id] ? prog[f.id].b / 5 : 0), 0) / (fs.length || 1);
+      return '<div class="xrow"><div class="xr-h"><span class="ti">' + sc.icon + '</span><b>' + esc(sc[e.id]) + '</b><small>' + fs.length + ' формул · ' + Math.round(p * 100) + '%</small></div><div class="pbar"><i style="width:' + Math.round(p * 100) + '%"></i></div>' +
+        '<div class="xtopics">' + ts.map((t) => '<a class="tchip" href="#/learn/' + t.id + '" ' + topicColor(t) + '>' + t.icon + ' ' + esc(t.name) + '</a>').join('') + '</div></div>';
+    }).join('') + '</div></section>').join('');
+    app.innerHTML = '<div class="page-head"><h1>🎯 ОГЭ и ЕГЭ</h1><p>Выбери экзамен — сайт соберёт под него формулы, числа и тренажёры. Фильтр в шапке переключится сам: его можно вернуть на «Все» или на нужный класс в любой момент.</p></div>' +
+      '<div class="xgrid">' + cards + '</div>' + secs +
+      '<section class="plan"><h2>✅ Как готовиться</h2><ol class="steps-l">' +
+      '<li><b>Формулы и единицы.</b> Выучи карточки темы, потом закрепи «Микс» и «Блиц»: на экзамене формул не дают, а справочные данные — приставки, константы, плотности — лежат под рукой.</li>' +
+      '<li><b>Перевод в СИ.</b> Большинство ошибок — не в физике, а в единицах: см → м, г → кг, км/ч → м/с, °C → К. Тренируй режим «Перевод единиц».</li>' +
+      '<li><b>Схема решения.</b> Дано → перевод в СИ → формула → выразить неизвестное → подставить и посчитать → проверить единицу и здравый смысл.</li>' +
+      '<li><b>Слабые места.</b> Раз в несколько дней открывай «Повторить сегодня»: сайт сам вернёт к формулам, где ты ошибался.</li></ol></section>';
   }
 
   /* ============ роутер ============ */
@@ -771,6 +831,7 @@
     sess = null;
     switch (v) {
       case 'learn': viewLearn(parts[1]); break;
+      case 'exam': viewExam(); break;
       case 'card': viewCard(parts[1]); break;
       case 'train': viewTrain(); break;
       case 'tech': viewTech(); break;
@@ -788,12 +849,12 @@
     const sims = (window.LAB && LAB.sims) || [];
     if (!id) {
       app.innerHTML = '<div class="page-head"><h1>🧪 Лаборатория</h1><p>Крути ползунки и смотри, как работают формулы. Каждый опыт связан с карточкой: сначала поиграй, потом запомни.</p></div><div class="labgrid">' +
-        sims.map((sm) => '<a class="labcard" href="#/lab/' + sm.id + '"><span class="li">' + sm.icon + '</span><b>' + esc(sm.name) + '</b><span class="lf">' + math(byId[sm.fid].f) + '</span><small>Попробовать →</small></a>').join('') + '</div>';
+        sims.map((sm) => '<a class="labcard" href="#/lab/' + sm.id + '"><span class="li">' + sm.icon + '</span><b>' + esc(sm.name) + '</b><span class="lf">' + math(sm.f || byId[sm.fid].f) + '</span><small>Попробовать →</small></a>').join('') + '</div>';
       return;
     }
     const sm = sims.find((x) => x.id === id); if (!sm) { location.hash = '#/lab'; return; }
     const f = byId[sm.fid], i = sims.indexOf(sm), nx = sims[(i + 1) % sims.length];
-    app.innerHTML = '<a class="back" href="#/lab">← Все опыты</a><section class="lab"><div class="lab-head"><span class="li big">' + sm.icon + '</span><div><h1>' + esc(sm.name) + '</h1><div class="lab-f">' + math(f.f, 'big') + '</div></div></div>' +
+    app.innerHTML = '<a class="back" href="#/lab">← Все опыты</a><section class="lab"><div class="lab-head"><span class="li big">' + sm.icon + '</span><div><h1>' + esc(sm.name) + '</h1><div class="lab-f">' + math(sm.f || f.f, 'big') + '</div></div></div>' +
       '<div class="lab-grid"><div class="stage" id="stage"></div><div class="lab-side"><div class="controls" id="ctl"></div><div class="readout" id="out"></div><p class="lab-tip">💡 ' + txt(sm.tip) + '</p>' +
       '<div class="cta"><a class="btn sm" href="#/card/' + sm.fid + '">📖 Карточка формулы</a><a class="btn ghost sm" href="#/lab/' + nx.id + '">Следующий опыт →</a></div></div></div></section>';
     labCleanup = sm.mount({ stage: document.getElementById('stage'), ctl: document.getElementById('ctl'), out: document.getElementById('out') });
@@ -803,7 +864,7 @@
   /* ---------- после отрисовки: каскад, счётчики, кольца ---------- */
   function afterRender() {
     const H = innerHeight * 1.25; let i = 0;
-    app.querySelectorAll('.tcard, .mcard, .b, .fcard, .step, .tech, .prow, .route li, .fact, .dot, .labcard, .wrong, .ach, .cnode, .daily, .tk').forEach((el) => {
+    app.querySelectorAll('.tcard, .mcard, .b, .fcard, .step, .tech, .prow, .route li, .fact, .dot, .labcard, .wrong, .ach, .cnode, .daily, .tk, .xcard, .xrow, .xp').forEach((el) => {
       if (el.getBoundingClientRect().top < H) { el.style.setProperty('--d', (i++ * 45) + 'ms'); el.classList.add('rv'); } else el.classList.add('rv-s');
     });
     FX.runCounters(app);
@@ -853,7 +914,7 @@
   });
   function input() {}
   /* ---------- управление как в XMB: ◀ ▶ разделы, ▲ ▼ пункты, Enter — ✕, Esc — ○ ---------- */
-  const NAV_ORDER = ['', 'learn', 'train', 'lab', 'tech', 'progress'];
+  const NAV_ORDER = ['', 'learn', 'exam', 'train', 'lab', 'tech', 'progress'];
   const navOf = (v) => (v === 'card' ? 'learn' : v === 'play' ? 'train' : v || '');
   function parentHash() {
     const { parts } = parse(), v = parts[0] || '';
@@ -896,7 +957,7 @@
   });
 
   window.addEventListener('hashchange', route);
-  D._test = { peek: () => (sess ? sess.items[sess.i] : null), M, toLin, tokensOf, canonDsl, canonEq, makeCalc, makePick, makeTri, makeMnemo, makeBuild, makeSym, makeRule, makeFact, makeConv, capable, fmt, parseNum, subst, byId };
+  D._test = { canonStrict, peek: () => (sess ? sess.items[sess.i] : null), M, toLin, tokensOf, canonDsl, canonEq, makeCalc, makePick, makeTri, makeMnemo, makeBuild, makeSym, makeRule, makeFact, makeConv, capable, fmt, parseNum, subst, byId };
   function updateSndBtn() { const b = document.getElementById('sndBtn'); if (b) { b.textContent = FX.soundOn() ? '🔊' : '🔇'; b.setAttribute('aria-pressed', FX.soundOn() ? 'true' : 'false'); } }
   D.util = { M, math, fmt, esc, txt };
   applyTheme(); FX.background(); FX.initRipple(); FX.initTilt(); refreshStatus(); setInterval(refreshStatus, 15000); updateSndBtn(); route(); FX.boot();

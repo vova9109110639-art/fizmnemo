@@ -131,7 +131,7 @@
     const b = document.createElement('div'); b.id = 'boot';
     const orb = (rot, dur) => '<g transform="rotate(' + rot + ' 100 100)"><ellipse cx="100" cy="100" rx="82" ry="30" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.5"/><circle r="5" fill="#fff"><animateMotion dur="' + dur + 's" repeatCount="indefinite" path="M18,100 a82,30 0 1,0 164,0 a82,30 0 1,0 -164,0"/></circle></g>';
     b.innerHTML = '<div class="boot-in"><svg viewBox="0 0 200 200" class="atom" aria-hidden="true">' + orb(0, 2.2) + orb(60, 2.8) + orb(120, 3.4) + '<circle cx="100" cy="100" r="9" fill="#fff" class="nuc"/></svg>' +
-      '<div class="boot-t">' + 'МнемоФизика'.split('').map((ch, i) => '<span style="--i:' + i + '">' + ch + '</span>').join('') + '</div><div class="boot-s">физика 7–8 класс · мнемоника</div><div class="boot-bar"><i></i></div></div>';
+      '<div class="boot-t">' + 'МнемоФизика'.split('').map((ch, i) => '<span style="--i:' + i + '">' + ch + '</span>').join('') + '</div><div class="boot-s">физика 7–11 класс · ОГЭ · ЕГЭ</div><div class="boot-bar"><i></i></div></div>';
     document.body.appendChild(b);
     const kill = () => { if (!b.isConnected) return; b.classList.add('out'); setTimeout(() => b.remove(), 650); };
     b.addEventListener('click', kill); setTimeout(kill, 2100);

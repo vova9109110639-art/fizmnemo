@@ -1,4 +1,4 @@
-/* МнемоФизика — «Лаборатория»: 9 интерактивных опытов. Каждый опыт: mount({stage, ctl, out}) → функция очистки. */
+/* МнемоФизика — «Лаборатория»: 16 интерактивных опытов. Каждый опыт: mount({stage, ctl, out}) → функция очистки. */
 (function () {
   'use strict';
   const LAB = (window.LAB = { sims: [] });
@@ -351,6 +351,214 @@
         if (T() > 90 && cc !== 400 && Math.random() < 0.35) bubs.push({ x: BX + 12 + Math.random() * (BW - 24), y: BY + BH - 4, r: 2 + Math.random() * 4 });
         bubs.forEach((b) => (b.y -= 90 * dt)); bubs = bubs.filter((b) => b.y > BY + 40);
         bub.innerHTML = bubs.map((b) => '<circle cx="' + b.x.toFixed(1) + '" cy="' + b.y.toFixed(1) + '" r="' + b.r.toFixed(1) + '" fill="none" stroke="#fff" stroke-width="1.6" opacity=".8"/>').join('');
+      });
+    }
+  });
+
+  /* ============ 10. Бросок под углом ============ */
+  add({
+    id: 'projectile', icon: '🏹', name: 'Бросок под углом', fid: 'range', formula: 'L = v₀²·sin2α/g',
+    tip: 'Меняй угол: дальше всего мяч летит при 45°, а углы 30° и 60° дают одинаковую дальность. Скорость вдвое больше — дальность вчетверо!',
+    mount(c) {
+      const W = 640, H = 300, X0 = 36, GY = 262, S = 3;
+      c.stage.innerHTML = svg(W, H, defs + '<line x1="20" y1="' + GY + '" x2="' + (W - 14) + '" y2="' + GY + '" stroke="rgba(255,255,255,.6)" stroke-width="3"/><path id="path" d="" fill="none" stroke="#ffd166" stroke-width="3" stroke-dasharray="7 6"/>' +
+        '<line id="top" stroke="#6ee7a5" stroke-width="2" stroke-dasharray="4 4" opacity=".8"/><text id="hl" fill="#6ee7a5" font-size="14"></text><text id="ll" fill="#fff" font-size="14" text-anchor="middle"></text><g id="cn"><text font-size="28" text-anchor="middle" dy="10">⚽</text></g>');
+      c.ctl.innerHTML = slider('v', 'Скорость v₀', 5, 40, 1, 25, 'м/с') + slider('a', 'Угол α', 5, 85, 1, 45, '°') + '<button class="btn" id="go">▶ Бросок</button>';
+      const q = (s) => c.stage.querySelector(s), path = q('#path'), cn = q('#cn'), top = q('#top'), hl = q('#hl'), ll = q('#ll');
+      let v = 25, a = 45, tau = 0, run = false, T = 0;
+      const pos = (t) => [X0 + v * Math.cos(rad(a)) * t * S, GY - (v * Math.sin(rad(a)) * t - 5 * t * t) * S];
+      const move = () => { const p = pos(Math.min(tau, T)); cn.setAttribute('transform', 'translate(' + p[0].toFixed(1) + ',' + p[1].toFixed(1) + ')'); };
+      const upd = () => {
+        T = (2 * v * Math.sin(rad(a))) / 10;
+        const L = (v * v * Math.sin(rad(2 * a))) / 10, Hm = Math.pow(v * Math.sin(rad(a)), 2) / 20;
+        let d = ''; for (let i = 0; i <= 60; i++) { const p = pos((T * i) / 60); d += (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1); }
+        path.setAttribute('d', d);
+        const t2 = pos(T / 2); set(top, { x1: t2[0], y1: t2[1], x2: t2[0], y2: GY }); hl.setAttribute('x', t2[0] + 6); hl.setAttribute('y', (t2[1] + GY) / 2); hl.textContent = 'H = ' + num(Hm, 1) + ' м';
+        const e = pos(T); ll.setAttribute('x', e[0]); ll.setAttribute('y', GY + 24); ll.textContent = 'L = ' + num(L, 1) + ' м';
+        c.out.innerHTML = U().math('L = {v_0^2·sin(2·α)|g} = {' + v + '^2·sin(' + 2 * a + '°)|10} = ' + num(L, 1)) + ' <span class="u">м</span><div class="mini">H = ' + num(Hm, 1) + ' м; время полёта t = ' + num(T, 2) + ' с</div>';
+        move();
+      };
+      bind(c.ctl, ['v', 'a'], (g) => { v = g.v; a = g.a; tau = 0; run = false; upd(); });
+      c.ctl.querySelector('#go').onclick = () => { tau = 0; run = true; };
+      upd();
+      return loop((dt) => { if (!run) return; tau += dt * 1.6; if (tau >= T) { tau = T; run = false; } move(); });
+    }
+  });
+
+  /* ============ 11. Газ в сосуде ============ */
+  add({
+    id: 'gas', icon: '🎈', name: 'Газ в сосуде', fid: 'clapeyron', formula: 'p·V = ν·R·T',
+    tip: 'Нагрей газ — молекулы побегут быстрее и давление вырастет. Сожми поршнем (уменьши V) — молекулы чаще бьют по стенкам: давление растёт. Количество газа не меняется (ν = 0,1 моль).',
+    mount(c) {
+      const W = 640, H = 300, BX = 70, BW = 330, BOT = 262;
+      c.stage.innerHTML = svg(W, H, defs + '<rect id="box" x="' + BX + '" y="42" width="' + BW + '" height="220" rx="8" fill="rgba(125,184,255,.12)" stroke="#fff" stroke-width="3"/><rect id="pist" x="' + (BX - 8) + '" y="30" width="' + (BW + 16) + '" height="16" rx="6" fill="#e8f0ff"/><g id="pts"></g>' +
+        '<rect x="470" y="42" width="46" height="220" rx="8" fill="rgba(255,255,255,.1)" stroke="rgba(255,255,255,.5)"/><rect id="pbar" x="474" y="258" width="38" height="0" fill="#ffd166"/><text x="493" y="284" text-anchor="middle" fill="#fff" font-size="14">давление</text><text id="pt" x="493" y="30" text-anchor="middle" fill="#ffd166" font-size="15"></text>' +
+        '<text x="' + (BX + BW / 2) + '" y="' + (BOT + 24) + '" text-anchor="middle" fill="#fff" font-size="14" id="vt"></text>');
+      c.ctl.innerHTML = slider('T', 'Температура T', 200, 600, 10, 300, 'К') + slider('V', 'Объём V', 1, 4, 0.1, 2, 'л');
+      const q = (s) => c.stage.querySelector(s), box = q('#box'), pist = q('#pist'), pts = q('#pts'), pbar = q('#pbar'), pt = q('#pt'), vt = q('#vt');
+      let T = 300, V = 2, top = BOT - 55 * V;
+      const parts = Array.from({ length: 34 }, () => { const ang = Math.random() * 6.283; return { x: BX + 20 + Math.random() * (BW - 40), y: BOT - 20 - Math.random() * 40, dx: Math.cos(ang), dy: Math.sin(ang) }; });
+      const upd = () => {
+        top = BOT - 55 * V; set(box, { y: top, height: BOT - top }); set(pist, { y: top - 12 });
+        const p = (0.1 * 8.31 * T) / V; set(pbar, { y: 258 - p * 0.4, height: p * 0.4 }); pt.textContent = num(p, 0) + ' кПа'; vt.textContent = 'V = ' + num(V, 1) + ' л';
+        c.out.innerHTML = U().math('p = {ν·R·T|V} = {0,1·8,31·' + T + '|' + num(V, 1).replace('.', ',') + '} = ' + num(p, 1)) + ' <span class="u">кПа</span><div class="mini">ν = 0,1 моль; p·V = ' + num(p * V, 1) + ' Дж — растёт вместе с T</div>';
+      };
+      bind(c.ctl, ['T', 'V'], (g) => { T = g.T; V = g.V; upd(); });
+      upd();
+      return loop((dt) => {
+        const sp = 150 * Math.sqrt(T / 300);
+        parts.forEach((o) => {
+          o.x += o.dx * sp * dt; o.y += o.dy * sp * dt;
+          if (o.x < BX + 7) { o.x = BX + 7; o.dx = Math.abs(o.dx); } if (o.x > BX + BW - 7) { o.x = BX + BW - 7; o.dx = -Math.abs(o.dx); }
+          if (o.y < top + 8) { o.y = top + 8; o.dy = Math.abs(o.dy); } if (o.y > BOT - 7) { o.y = BOT - 7; o.dy = -Math.abs(o.dy); }
+        });
+        pts.innerHTML = parts.map((o) => '<circle cx="' + o.x.toFixed(1) + '" cy="' + o.y.toFixed(1) + '" r="5" fill="#ffd166" stroke="#fff" stroke-width="1"/>').join('');
+      });
+    }
+  });
+
+  /* ============ 12. Маятник ============ */
+  add({
+    id: 'pendulum', icon: '🕰️', name: 'Математический маятник', fid: 'pend', formula: 'T = 2π√(l/g)',
+    tip: 'Удлини нить — маятник станет медленнее. Перенеси его на Луну (g ≈ 1,6) — тоже медленнее. А массы груза в формуле нет: период от неё не зависит!',
+    mount(c) {
+      const W = 640, H = 330, PX = 320, PY = 24, K = 70;
+      c.stage.innerHTML = svg(W, H, defs + '<rect x="' + (PX - 60) + '" y="' + (PY - 14) + '" width="120" height="12" rx="4" fill="#e8f0ff"/><line id="str" x1="' + PX + '" y1="' + PY + '" x2="' + PX + '" y2="200" stroke="#fff" stroke-width="3"/><circle id="bob" r="18" cx="' + PX + '" cy="200" fill="#ffd166" stroke="#fff" stroke-width="3"/><line x1="' + PX + '" y1="' + PY + '" x2="' + PX + '" y2="' + (H - 20) + '" stroke="rgba(255,255,255,.3)" stroke-dasharray="5 6"/><text id="tt" x="' + (W - 20) + '" y="40" text-anchor="end" fill="#fff" font-size="18"></text>');
+      c.ctl.innerHTML = slider('l', 'Длина нити l', 0.2, 4, 0.05, 1, 'м') + slider('g', 'Ускорение g', 1.6, 25, 0.1, 9.8, 'м/с²');
+      const q = (s) => c.stage.querySelector(s), str = q('#str'), bob = q('#bob'), tt = q('#tt');
+      let l = 1, g = 9.8, ph = 0, n = 0;
+      const per = () => 2 * Math.PI * Math.sqrt(l / g);
+      const upd = () => { const T = per(); c.out.innerHTML = U().math('T = 2·π·√({l|g}) = 2·π·√({' + num(l, 2) + '|' + num(g, 1) + '}) = ' + num(T, 2)) + ' <span class="u">с</span><div class="mini">частота ν = ' + num(1 / T, 2) + ' Гц; за 10 с — ' + num(10 / T, 1) + ' колебаний</div>'; };
+      bind(c.ctl, ['l', 'g'], (v) => { l = v.l; g = v.g; upd(); });
+      upd();
+      return loop((dt) => {
+        ph += (2 * Math.PI * dt) / per(); n = ph / (2 * Math.PI);
+        const th = 0.38 * Math.cos(ph), L = l * K, x = PX + L * Math.sin(th), y = PY + L * Math.cos(th);
+        set(str, { x2: x.toFixed(1), y2: y.toFixed(1) }); set(bob, { cx: x.toFixed(1), cy: y.toFixed(1) });
+        tt.textContent = 'колебаний: ' + Math.floor(n);
+      });
+    }
+  });
+
+  /* ============ 13. Заряд в магнитном поле ============ */
+  add({
+    id: 'lorentz', icon: '🌀', name: 'Электрон в магнитном поле', fid: 'R-cyc', formula: 'R = m·v/(q·B)',
+    tip: 'Быстрее электрон — круг шире, сильнее поле — круг уже. А вот время одного оборота от скорости НЕ зависит: сравни периоды при разных v.',
+    mount(c) {
+      const W = 640, H = 300, CX = 320, CY = 150, PXMM = 2.4;
+      let marks = ''; for (let x = 40; x < W; x += 60) for (let y = 30; y < H; y += 60) marks += '<text x="' + x + '" y="' + y + '" fill="rgba(255,255,255,.28)" font-size="22" text-anchor="middle">×</text>';
+      c.stage.innerHTML = svg(W, H, defs + marks + '<circle id="orb" cx="' + CX + '" cy="' + CY + '" r="50" fill="none" stroke="#ffd166" stroke-width="2.5" stroke-dasharray="7 6"/><circle cx="' + CX + '" cy="' + CY + '" r="3" fill="#fff"/><g id="el"><circle r="9" fill="#7fd4ff" stroke="#fff" stroke-width="2"/><text y="4" font-size="13" text-anchor="middle" fill="#06204d" font-weight="700">−</text></g><text x="20" y="28" fill="#fff" font-size="14">поле B направлено «от нас» (×)</text>');
+      c.ctl.innerHTML = slider('v', 'Скорость v (×10⁶ м/с)', 1, 10, 1, 4, '') + slider('B', 'Индукция B', 1, 10, 1, 4, 'мТл');
+      const q = (s) => c.stage.querySelector(s), orb = q('#orb'), el = q('#el');
+      let v = 4, B = 4, ang = 0;
+      const rmm = () => (5.6875 * v) / B;
+      const upd = () => {
+        const r = rmm(); orb.setAttribute('r', (r * PXMM).toFixed(1));
+        const T = 35.74 / B;
+        c.out.innerHTML = U().math('R = {m·v|q·B} = {9,1·10^(−31)·' + v + '·10^6|1,6·10^(−19)·' + B + '·10^(−3)} = ' + num(r, 1)) + ' <span class="u">мм</span><div class="mini">период T = 2π·m/(q·B) = ' + num(T, 1) + ' нс — не зависит от v</div>';
+      };
+      bind(c.ctl, ['v', 'B'], (g) => { v = g.v; B = g.B; upd(); });
+      upd();
+      return loop((dt) => {
+        ang += dt * (0.5 + 0.3 * B); const r = rmm() * PXMM;
+        el.setAttribute('transform', 'translate(' + (CX + r * Math.cos(ang)).toFixed(1) + ',' + (CY + r * Math.sin(ang)).toFixed(1) + ')');
+      });
+    }
+  });
+
+  /* ============ 14. Преломление света ============ */
+  add({
+    id: 'snell', icon: '💧', name: 'Преломление и полное отражение', fid: 'snell', formula: 'n₁·sinα = n₂·sinβ',
+    tip: 'Пусти луч из «густой» среды в «редкую» (n₁ > n₂) и увеличивай угол: при некотором предельном угле луч перестанет выходить — полное отражение!',
+    mount(c) {
+      const W = 640, H = 320, CX = 320, CY = 160, L = 170;
+      c.stage.innerHTML = svg(W, H, defs + '<rect id="m1" x="0" y="0" width="' + W + '" height="' + CY + '" fill="rgba(125,184,255,.2)"/><rect id="m2" x="0" y="' + CY + '" width="' + W + '" height="' + (H - CY) + '" fill="rgba(125,184,255,.35)"/>' +
+        '<line x1="0" y1="' + CY + '" x2="' + W + '" y2="' + CY + '" stroke="#fff" stroke-width="3"/><line x1="' + CX + '" y1="20" x2="' + CX + '" y2="' + (H - 20) + '" stroke="rgba(255,255,255,.55)" stroke-dasharray="5 6"/>' +
+        '<line id="inc" stroke="#ffd166" stroke-width="4" marker-end="url(#ah)"/><line id="ref" stroke="#6ee7a5" stroke-width="4" marker-end="url(#ah)"/><line id="rfl" stroke="#ff9eb5" stroke-width="3" marker-end="url(#ah)" opacity="0"/>' +
+        '<text x="14" y="30" fill="#fff" font-size="16" id="l1"></text><text x="14" y="' + (H - 14) + '" fill="#fff" font-size="16" id="l2"></text>');
+      c.ctl.innerHTML = slider('a', 'Угол падения α', 0, 89, 1, 35, '°') + slider('n1', 'Показатель n₁ (верх)', 1, 2.5, 0.01, 1.5, '') + slider('n2', 'Показатель n₂ (низ)', 1, 2.5, 0.01, 1, '');
+      const q = (s) => c.stage.querySelector(s), inc = q('#inc'), ref = q('#ref'), rfl = q('#rfl'), m1 = q('#m1'), m2 = q('#m2'), l1 = q('#l1'), l2 = q('#l2');
+      const upd = (g) => {
+        const a = g.a, n1 = g.n1, n2 = g.n2, s = (n1 * Math.sin(rad(a))) / n2;
+        set(inc, { x1: CX - L * Math.sin(rad(a)), y1: CY - L * Math.cos(rad(a)), x2: CX, y2: CY });
+        set(m1, { opacity: 0.35 + 0.35 * (n1 - 1) / 1.5 }); set(m2, { opacity: 0.35 + 0.35 * (n2 - 1) / 1.5 });
+        l1.textContent = 'n₁ = ' + num(n1, 2); l2.textContent = 'n₂ = ' + num(n2, 2);
+        if (s <= 1) {
+          const b = (Math.asin(s) * 180) / Math.PI; rfl.setAttribute('opacity', 0); ref.setAttribute('opacity', 1);
+          set(ref, { x1: CX, y1: CY, x2: CX + L * Math.sin(rad(b)), y2: CY + L * Math.cos(rad(b)) });
+          c.out.innerHTML = U().math('sin(β) = {n_1·sin(α)|n_2} = ' + num(s, 3)) + ' → β = <b>' + num(b, 1) + '°</b>' + (n1 > n2 ? '<div class="mini">предельный угол α₀ = ' + num((Math.asin(n2 / n1) * 180) / Math.PI, 1) + '°</div>' : '<div class="mini">луч приближается к нормали: β < α</div>');
+        } else {
+          ref.setAttribute('opacity', 0); rfl.setAttribute('opacity', 1);
+          set(rfl, { x1: CX, y1: CY, x2: CX + L * Math.sin(rad(a)), y2: CY - L * Math.cos(rad(a)) });
+          c.out.innerHTML = '<b>Полное отражение!</b> sin β = ' + num(s, 2) + ' > 1 — преломлённого луча нет.<div class="mini">предельный угол α₀ = ' + num((Math.asin(n2 / n1) * 180) / Math.PI, 1) + '°</div>';
+        }
+      };
+      const get = bind(c.ctl, ['a', 'n1', 'n2'], upd);
+      upd(get());
+    }
+  });
+
+  /* ============ 15. Фотоэффект ============ */
+  add({
+    id: 'photo', icon: '🔆', name: 'Фотоэффект', fid: 'einstein', formula: 'hν = A + E_к',
+    tip: 'Красный свет не выбивает электроны — сколько ни увеличивай яркость. Подними частоту выше «красной границы» — электроны вылетят, и чем частота больше, тем они быстрее. Яркость меняет только ЧИСЛО электронов.',
+    mount(c) {
+      const W = 640, H = 300, PY = 230;
+      c.stage.innerHTML = svg(W, H, defs + '<rect x="300" y="' + PY + '" width="300" height="22" rx="4" fill="rgba(200,210,230,.85)" stroke="#fff" stroke-width="2"/><text x="450" y="' + (PY + 17) + '" text-anchor="middle" fill="#0a1f4a" font-size="14" font-weight="700">металл</text><g id="ph"></g><g id="es"></g><text id="st" x="20" y="30" fill="#fff" font-size="17"></text>');
+      c.ctl.innerHTML = slider('nu', 'Частота света ν (×10¹⁴ Гц)', 3, 12, 0.1, 6, '') + slider('A', 'Работа выхода A', 1.5, 5, 0.1, 3, 'эВ') + slider('I', 'Яркость', 1, 5, 1, 3, '');
+      const q = (s) => c.stage.querySelector(s), ph = q('#ph'), es = q('#es'), st = q('#st');
+      let nu = 6, A = 3, I = 3, photons = [], elecs = [], acc = 0;
+      const hnu = () => 0.4136 * nu, col = () => { const t = clamp((nu - 3.9) / 3.8, 0, 1); return nu < 3.9 ? '#b8b8c8' : nu > 7.7 ? '#e0b8ff' : 'hsl(' + Math.round(270 * t) + ',90%,60%)'; };
+      const upd = () => {
+        const e = hnu(), ek = e - A;
+        c.out.innerHTML = ek > 0 ? U().math('E_(к) = h·ν − A_(вых) = ' + num(e, 2) + ' − ' + num(A, 1) + ' = ' + num(ek, 2)) + ' <span class="u">эВ</span><div class="mini">запирающее напряжение U_з = E_к / e = ' + num(ek, 2) + ' В</div>'
+          : '<b>hν = ' + num(e, 2) + ' эВ &lt; A = ' + num(A, 1) + ' эВ</b> — фотоэффекта нет.<div class="mini">красная граница: ν_кр = A/h = ' + num(A / 0.4136, 1) + '·10¹⁴ Гц</div>';
+        st.textContent = 'hν = ' + num(e, 2) + ' эВ';
+      };
+      bind(c.ctl, ['nu', 'A', 'I'], (g) => { nu = g.nu; A = g.A; I = g.I; upd(); });
+      upd();
+      return loop((dt) => {
+        acc += dt * (2 + 3 * I);
+        while (acc >= 1) { acc -= 1; const x = 330 + Math.random() * 240; photons.push({ x, y: 40, tx: x, vy: 260 }); }
+        photons.forEach((p) => { p.y += p.vy * dt; p.x += 0; });
+        const ek = hnu() - A;
+        photons = photons.filter((p) => { if (p.y >= PY) { if (ek > 0 && Math.random() < 0.55) elecs.push({ x: p.x, y: PY, vy: -(60 + 70 * Math.sqrt(ek)), life: 1 }); return false; } return true; });
+        elecs.forEach((e) => { e.y += e.vy * dt; e.life -= dt * 0.9; });
+        elecs = elecs.filter((e) => e.life > 0 && e.y > 10);
+        ph.innerHTML = photons.map((p) => '<path d="M' + p.x.toFixed(1) + ',' + (p.y - 14).toFixed(1) + ' q4,3 0,6 q-4,3 0,6 q4,3 0,6" fill="none" stroke="' + col() + '" stroke-width="3"/>').join('');
+        es.innerHTML = elecs.map((e) => '<circle cx="' + e.x.toFixed(1) + '" cy="' + e.y.toFixed(1) + '" r="6" fill="#7fd4ff" stroke="#fff" stroke-width="1.5" opacity="' + clamp(e.life, 0.2, 1).toFixed(2) + '"/>').join('');
+      });
+    }
+  });
+
+  /* ============ 16. Радиоактивный распад ============ */
+  add({
+    id: 'decay', icon: '☢️', name: 'Радиоактивный распад', fid: 'decay-law', formula: 'N = N₀·2^(−t/T)',
+    tip: 'Каждый атом распадается случайно, но «в среднем» за каждый период полураспада T остаётся ровно половина. Смотри на график: опыт (жёлтый) идёт вдоль теории (пунктир).',
+    mount(c) {
+      const W = 640, H = 300, G = 10, CELL = 22, GX = 24, GY0 = 40;
+      let cells = ''; for (let i = 0; i < 100; i++) cells += '<rect class="at" x="' + (GX + (i % G) * (CELL + 2)) + '" y="' + (GY0 + Math.floor(i / G) * (CELL + 2)) + '" width="' + CELL + '" height="' + CELL + '" rx="5" fill="#6ee7a5"/>';
+      c.stage.innerHTML = svg(W, H, defs + cells + '<rect x="320" y="40" width="300" height="230" rx="8" fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.4)"/><polyline id="th" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="6 5"/><polyline id="ex" fill="none" stroke="#ffd166" stroke-width="3"/><text x="470" y="290" text-anchor="middle" fill="#fff" font-size="13">время t</text><text x="326" y="34" fill="#fff" font-size="13">N</text>');
+      c.ctl.innerHTML = slider('T', 'Период полураспада T', 1, 6, 0.5, 3, 'с') + '<button class="btn" id="rs">↻ Заново</button>';
+      const q = (s) => c.stage.querySelector(s), at = [...c.stage.querySelectorAll('.at')], th = q('#th'), ex = q('#ex');
+      let T = 3, alive = Array(100).fill(true), t = 0, hist = [[0, 100]], lastH = 0;
+      const reset = () => { alive = Array(100).fill(true); t = 0; hist = [[0, 100]]; lastH = 0; at.forEach((a) => a.setAttribute('fill', '#6ee7a5')); draw(); };
+      const X = (tt) => 326 + (tt / (5 * T)) * 288, Y = (n) => 266 - (n / 100) * 220;
+      const draw = () => {
+        let d = ''; for (let i = 0; i <= 40; i++) { const tt = (5 * T * i) / 40; d += X(tt).toFixed(1) + ',' + Y(100 * Math.pow(2, -tt / T)).toFixed(1) + ' '; } th.setAttribute('points', d);
+        ex.setAttribute('points', hist.map((p) => X(p[0]).toFixed(1) + ',' + Y(p[1]).toFixed(1)).join(' '));
+        const N = alive.filter(Boolean).length;
+        c.out.innerHTML = U().math('N = N_0·2^(−{t|T}) = 100·2^(−{' + num(t, 1) + '|' + num(T, 1) + '}) = ' + num(100 * Math.pow(2, -t / T), 0)) + '<div class="mini">в опыте осталось ' + N + ' из 100 · прошло периодов: ' + num(t / T, 1) + '</div>';
+      };
+      bind(c.ctl, ['T'], (g) => { T = g.T; reset(); });
+      c.ctl.querySelector('#rs').onclick = reset;
+      draw();
+      return loop((dt) => {
+        if (t > 5 * T) return;
+        t += dt; const p = 1 - Math.pow(2, -dt / T);
+        alive.forEach((a, i) => { if (a && Math.random() < p) { alive[i] = false; at[i].setAttribute('fill', 'rgba(255,255,255,.12)'); } });
+        if (t - lastH >= 0.15) { lastH = t; hist.push([Math.min(t, 5 * T), alive.filter(Boolean).length]); }
+        draw();
       });
     }
   });

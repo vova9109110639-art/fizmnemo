@@ -151,3 +151,29 @@ input[type="range"]:focus { box-shadow: 0 0 0 2px rgba(255, 255, 255, .6), 0 0 1
   .xi { font-size: 1.45rem; } .xcat { min-width: 44px; padding: 2px 0; } .xl { font-size: .54rem; letter-spacing: .02em; }
   #clock { display: none; } .ctrls { gap: 6px; } .seg button { padding: 3px 8px; }
 }
+
+/* ===== физика 7–11: экзамены, фильтр классов, математические функции ===== */
+.math .fn { font-style: normal; margin-right: .1em; }
+.seg { flex-wrap: nowrap; }
+.seg button.ex { color: #ffe29a; }
+.seg button.ex.on { color: #08224f; }
+@media (max-width: 640px) { .seg button { padding: 3px 7px; font-size: .74rem; } .statusline { flex-wrap: wrap; row-gap: 6px; } }
+@media (max-width: 420px) { .seg button { padding: 3px 5px; font-size: .7rem; } .xcats { gap: 2px; } .xcat { min-width: 44px; } }
+.chip.ex.o { background: rgba(120, 190, 255, .22); color: #bfe0ff; border-color: rgba(120, 190, 255, .55); }
+.chip.ex.e { background: rgba(255, 217, 138, .2); color: #ffe2a3; border-color: rgba(255, 217, 138, .55); }
+.xgrid, .xpromo { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; margin: 14px 0 22px; }
+.xcard { padding: 18px 20px; border: 1px solid var(--line); border-radius: 20px; background: var(--card); box-shadow: var(--shadow); min-width: 0; }
+.xcard.oge { border-top: 3px solid #78beff; } .xcard.ege { border-top: 3px solid #ffd98a; }
+.xc-top { display: flex; align-items: center; gap: 14px; } .xc-top > div:nth-child(2) { flex: 1; min-width: 0; }
+.xc-top h2 { margin: 0; } .xc-ico { font-size: 2.2rem; }
+.xcard p { color: var(--muted); line-height: 1.45; margin: 12px 0; }
+.xstats { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: .88rem; color: var(--muted); } .xstats b { color: #fff; font-size: 1.1rem; }
+.xsec { margin: 26px 0; } .xrows { display: grid; gap: 14px; }
+.xrow { padding: 12px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--card2); min-width: 0; }
+.xr-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; } .xr-h b { flex: 1; min-width: 0; } .xr-h .ti { font-size: 1.3rem; }
+.xtopics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; } .xtopics .tchip { padding: 4px 11px; font-size: .8rem; }
+.xp { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--card2); transition: .2s; min-width: 0; }
+.xp:hover { transform: translateX(4px) scale(1.01); background: rgba(255, 255, 255, .16); box-shadow: var(--shadow), var(--glow); }
+.xp.oge { border-left: 4px solid #78beff; } .xp.ege { border-left: 4px solid #ffd98a; }
+.xp .xi2 { font-size: 2rem; } .xp b { display: block; font-size: 1.1rem; } .xp small { display: block; color: var(--muted); }
+.exam-promo { margin-top: 26px; }
